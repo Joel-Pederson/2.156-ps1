@@ -1,6 +1,6 @@
 # 2.156 — ps1
-
-Group problem set. Three collaborators.
+September 2026. MIT 2.156.
+Fatak Borhani, Joel Pederson, & Leif Akerley
 
 ## Setup
 
