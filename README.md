@@ -12,11 +12,22 @@ python -m ipykernel install --user --name ps1 --display-name "Python (ps1)"
 
 Then open the notebook and select the `Python (ps1)` kernel.
 
-Torch device is picked at runtime — Apple Silicon gets MPS, everyone else CPU/CUDA:
+The course library `LINKS/` (plus `kangaroo_target_curves.npy` and `starter_mechanism.npy`) is
+copied from [decode-mit/2.156-CP1-2026](https://github.com/decode-mit/2.156-CP1-2026) and committed
+here, so no clone step is needed. Staff may still update it — check their repo for new commits
+before final submission. `LINKS` runs on JAX, pinned to CPU (`JAX_PLATFORMS=cpu`) in the notebooks.
 
-```python
-device = "mps" if torch.backends.mps.is_available() else "cpu"
-```
+## Running on Colab instead
+
+Open a notebook straight from GitHub:
+`https://colab.research.google.com/github/Joel-Pederson/2.156-ps1/blob/main/<notebook>.ipynb`
+
+The first cell detects Colab, clones this repo into `/content/2.156-ps1`, `cd`s into it and
+pip-installs `pymoo` and `svgpath2mpl`. Locally that cell does nothing.
+
+Colab does **not** sync back to this repo. To save work: File → Save a copy in GitHub (pick this
+repo and `main`), and download any `.npy` results before the runtime dies — they're lost otherwise.
+Pull locally afterwards so your copy stays current.
 
 ## Working together
 

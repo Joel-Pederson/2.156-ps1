@@ -2,15 +2,22 @@
 #   mamba env create -f environment.yml
 # Update after editing this file with:
 #   mamba env update -f environment.yml --prune
+# Versions follow the course repo's requirements.txt (decode-mit/2.156-CP1-2026).
 name: ps1
 channels:
   - conda-forge
 dependencies:
-  - python=3.12
-  - numpy
+  - python=3.10
+  - numpy=2
   - scipy
-  - matplotlib
-  - pandas
+  - matplotlib=3.10
+  - jax=0.5.3
+  - jaxlib=0.5.3
+  - pymoo=0.6.1
+  - svgpath2mpl=1.0.0
+  - tqdm
+  - ipywidgets
   - jupyterlab
   - ipykernel
+  - nbdime
   - ruff

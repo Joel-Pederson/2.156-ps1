@@ -1,0 +1,1 @@
+from ._JAX import solve_rev_vectorized_batch as dyadic_solve
