@@ -1,6 +1,8 @@
 # 2.156 — ps1
-September 2026. MIT 2.156.
+September 2026. MIT. 2.156
 Fatak Borhani, Joel Pederson, & Leif Akerley
+
+**PS1 objective:** Design a linkage mechanism that can trace a target curve whilst minimizing material usage and complexity.
 
 ## Setup
 
