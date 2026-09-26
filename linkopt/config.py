@@ -20,6 +20,10 @@ MIN_JOINTS = 5  # smallest size we've checked MechanismRandomizer can generate
 
 @dataclass(frozen=True)
 class Config:
+    # These defaults ARE the "quick" preset. "smoke" and "full" (PRESETS, below) also
+    # start from them, so changing a default here changes every preset that doesn't
+    # override that field. To tune just one preset, edit its entry in PRESETS.
+
     # What to optimize. One GA job runs per (target, n_joints, seed) combination.
     targets: tuple[int, ...] = (0, 1, 2)  # kangaroos: 0 = Kangaroo 1 ... 2 = Kangaroo 3
     n_joints: tuple[int, ...] = (7,)  # mechanism sizes to try (at most 20 joints)
@@ -76,6 +80,8 @@ class Config:
         return asdict(self)
 
 
+# Each preset is Config's defaults plus the fields listed; anything not listed keeps
+# its default. "quick" lists nothing, so it is exactly the defaults.
 PRESETS = {
     "smoke": Config(n_start=16, pop_size=16, n_gen=3, grad_steps=10, n_workers=1),
     "quick": Config(),
