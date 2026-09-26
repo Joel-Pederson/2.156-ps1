@@ -61,14 +61,56 @@ Notebooks merge badly. To avoid three-way conflicts on cell IDs and outputs:
   ```
 - Notebooks are committed **with outputs** — the submission needs them.
 
-### Course-provided files
+## Tests and CI
 
-Files copied from [decode-mit/2.156-CP1-2026](https://github.com/decode-mit/2.156-CP1-2026)
-(`LINKS/`, both starter notebooks, `kangaroo_target_curves.npy`, `starter_mechanism.npy`) stay
-as the course shipped them. If you change one beyond comments, put a notice at the very top:
+`pytest` is in `environment.yml`. If your env predates that, update it once:
+`mamba env update -f environment.yml`.
 
-- `.py`: a comment block starting `# Modified by team:` plus one line per change.
-- `.ipynb`: a first markdown cell starting `> **Modified by team**` with a bullet per change.
+**Before you push:**
 
-Currently modified: both starter notebooks (Colab setup cell; see the notice at the top of each).
-`LINKS/` and the data files are byte-identical to the course repo.
+```bash
+conda activate ps1
+ruff check linkopt tests score.py
+pytest -m "not slow"    # seconds: notebook requirements, format, best-submission guard
+pytest                  # everything, including end-to-end runs (minutes)
+```
+
+**On GitHub**:
+
+- `.github/workflows/ci.yml` runs lint + `pytest` on every push to every branch. Results show as
+  ✅/❌ next to the commit and in the repo's **Actions** tab.
+- `.github/workflows/upstream-links.yml` ("Course repo updates") runs on every push, and fails if the course repo has changed since we copied it. It only downloads the course
+  repo; it never writes to it. If it fails, see "If the course repo changes" below.
+
+**If the course repo changes** (staff updated `LINKS/`, the notebooks or the data):
+
+1. Read the failing check's log: it lists every added/removed/changed file.
+2. Clone the course repo somewhere outside this repo and review what changed, especially
+   `LINKS/CP/__init__.py` (the grader) and the notebooks' Instructions / Submission Format.
+3. Copy the changed files in. For the two notebooks, merge by hand so our Colab setup cell and
+   the "Modified by team" notice survive.
+4. `python tests/upstream_manifest.py build <course-repo-clone>` to record the new fingerprints.
+5. If the rules changed (limits, joint cap, 1000 cap, normalizers), update the numbers at the
+   top of `tests/test_requirements.py` to match the notebook.
+6. Re-score: `python score.py --strict submissions/best.npy`, and update
+   `submissions/best_score.json` if the score changed.
+7. `pytest`, then commit everything together.
+
+**What the tests guarantee:**
+
+- Every `submissions/*.npy` file meets the starter notebook's requirements: one dict with
+  keys `Problem 1..3`, none empty, ≤ 1000 mechanisms per problem, ≤ 20 joints per mechanism,
+  the exact field types/shapes, `target_joint` set, motor is a link, and every design within
+  its kangaroo's distance and material limits (`tests/test_requirements.py`). Keep submission
+  files in `submissions/` so they get checked.
+- Our submission tooling writes that format exactly, and a file
+  scores the same when saved and reloaded (`tests/test_submission_format.py`).
+- `submissions/best.npy` never scores below `submissions/best_score.json`
+  (`tests/test_best_submission.py`). Only replace it with a better submission, and update the
+  JSON in the same commit.
+- The grader (`LINKS/CP/__init__.py`) and `kangaroo_target_curves.npy` are byte-identical to the
+  course's versions (fingerprints in `tests/upstream_manifest.json`), so local scores match
+  the leaderboard's.
+
+Check any submission file by hand with `python score.py <file.npy>` (add `--strict` for our
+exact format).

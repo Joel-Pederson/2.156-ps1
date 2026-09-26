@@ -1,0 +1,29 @@
+{
+  "upstream": "https://github.com/decode-mit/2.156-CP1-2026",
+  "upstream_commit": "52e76e58b9a50812a46ed60677e22ba91e7937ea",
+  "files": {
+    "2_155_Fall_26_CP1_Starter_Notebook.ipynb": "294d84c0d531d34339a645fb41f2e86ccad33c105ee9190a3e997568ab7f2c8e",
+    "Fall_26_CP1_Advanced_Starter_Notebook.ipynb": "5c0a5ea872517efd3ab2b4c34b990384ad632b6c6d22205ed6aa39cfe885ae31",
+    "LINKS/CP/__init__.py": "6b563af14102233759cc174b5c9e101350a1f592fe2b299ce4d2d23a0452f0c0",
+    "LINKS/Geometry/_CurveEngine.py": "31070a7df2b29054e62778e64e1cedd2f67634961a5f0a3717f2cf921c2ff13f",
+    "LINKS/Geometry/__init__.py": "9ad9c31d1d765dd234c029516a2f871d7b18f9ff5b92cb41ff9b94682bbdc5ca",
+    "LINKS/Geometry/_utils.py": "22fd86699965333eab5a0372e7d92291141195fa3ef2b3b6fdee911e7af8a92b",
+    "LINKS/Kinematics/_Solver.py": "dc8e52bf005f41a51297cd32fcf1454ce77cef3afe00e430da28fcaff26303d0",
+    "LINKS/Kinematics/__init__.py": "2449c942e0e28c3d0da9123f403d5570cfeb85bc99fda2fa6047a821681af41b",
+    "LINKS/Kinematics/_kin.py": "8a0a7149f67625f8c6ec8914b6112ecdc9ef9813789782cef4f452a3603c1be3",
+    "LINKS/Kinematics/_solvers/_JAX.py": "264c058719bc09da7cea3c4deb53de8ad01b74bd8003397ffdf9d7fe898d5b16",
+    "LINKS/Kinematics/_solvers/__init__.py": "d71fb34aad8ef6f573e99e128d08ae28c67e6895e31589804ba7c39df4e14238",
+    "LINKS/Optimization/_DifferentiableTools.py": "da22a8e0e28d59d05eca294970dcfd555ca41a70a08fa24a0db53becd1eeeade",
+    "LINKS/Optimization/_MechanismRandomizer.py": "b4a79167c28ddf2002eea3bf51b1f7bbf8710a22eb38af6c279bdcd0a22640b0",
+    "LINKS/Optimization/_Tools.py": "62a278f69f3034164721efb2de0b28ef2815d9a4c6092ffd4b2f07ed6881ba80",
+    "LINKS/Optimization/__init__.py": "94925d792ff6e3c5e1c4960b8992fbdf7843bb27b78b2a96e7d34d0130cf6a53",
+    "LINKS/Optimization/_utils.py": "dcd1b402602d80aeb1e0e61c54ff2361aa39b0022a63e1997924ae001e443f8a",
+    "LINKS/Visualization/_GAVisualizer.py": "f30640746d505dfad4bdc951a0479c5f347357eafb82451f8188a0428c4818ad",
+    "LINKS/Visualization/_Visualizer.py": "08e2d822913a6ece1ac523eb9fa7150f433a66ed2555d59e3f9f015e76870797",
+    "LINKS/Visualization/__init__.py": "7c079f337b65951dcd16a2014e95b2eadf6dd516c2fa125c26cf08d62c95aa6a",
+    "LINKS/Visualization/_utils.py": "de1092d3bbdec626597c0294b26940ed8881a57733a392218682d10c8711a570",
+    "LINKS/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "kangaroo_target_curves.npy": "4537bf49b95b99fe8540efce6c5c5b849bd04086f5a2d3a0c5734810e7cd28be",
+    "starter_mechanism.npy": "d201635338b1b59332e8baa9f7ccfa0e73ebc7ca650168ed6ebb9f5a085cfd37"
+  }
+}

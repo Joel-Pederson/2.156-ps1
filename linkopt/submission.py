@@ -77,6 +77,33 @@ def to_entry(mech: Mapping) -> dict:
     return entry
 
 
+def fill_default_target_joints(mechs: Sequence[Mapping]) -> list[dict]:
+    """Copies of `mechs` where a missing/None target_joint is replaced by the joint
+    the grader would use: the last joint in the mechanism's solve order.
+
+    Use this to bring starter-notebook style designs (target_joint=None) into the
+    strict format without changing their score.
+    """
+    from LINKS.Optimization import Tools  # imported here: only needed for this helper
+
+    mechs = [dict(m) for m in mechs]
+    todo = [i for i, m in enumerate(mechs) if m.get("target_joint") is None]
+    if todo:
+        orders = (
+            Tools(device="cpu")
+            .get_preprocessed(
+                [np.asarray(mechs[i]["x0"]) for i in todo],
+                [np.asarray(mechs[i]["edges"]) for i in todo],
+                [np.asarray(mechs[i]["fixed_joints"]) for i in todo],
+                [np.asarray(mechs[i]["motor"]) for i in todo],
+            )
+            .orders
+        )
+        for i, order in zip(todo, orders):
+            mechs[i]["target_joint"] = int(order[-1])
+    return mechs
+
+
 def build_submission(designs: Mapping[int, Sequence[Mapping]]) -> dict:
     """{target_index: [mech, ...]} -> submission dict. Problems not given stay empty."""
     submission = make_empty_submission()

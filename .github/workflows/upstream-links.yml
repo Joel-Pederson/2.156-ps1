@@ -1,11 +1,11 @@
-# Weekly: has the course repo changed since we copied LINKS/, the notebooks and the data?
+# Has the course repo changed since we copied LINKS/, the notebooks and the data?
 # Read-only: it downloads the course repo and compares it to tests/upstream_manifest.json.
-# (GitHub only runs scheduled workflows from the default branch, i.e. main.)
+# Runs on every push (any branch). A separate check from CI, so "course repo changed"
+# never looks like "our code broke".
 name: Course repo updates
 
 on:
-  schedule:
-    - cron: "0 13 * * 1" # Mondays 13:00 UTC
+  push:
   workflow_dispatch:
 
 jobs:
