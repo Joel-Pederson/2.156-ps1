@@ -1,0 +1,31 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- Editor / OS ---
+.vscode/
+.DS_Store
+.AppleDouble
+Icon?
+
+# --- Environments (never commit, never sync) ---
+.venv/
+venv/
+*.nosync/
+
+# --- Data & model artifacts (usually too big for git) ---
+data/
+checkpoints/
+runs/
+wandb/
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.npz
