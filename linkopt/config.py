@@ -31,7 +31,11 @@ class Config:
     # GA (NSGA-II over connectivity, positions, fixed joints and target joint).
     pop_size: int = 50  # designs per generation
     n_gen: int = 30  # generations
-    mutation_prob: float = 0.5  # higher explores more, lower refines more
+    # Chance that a design is mutated; higher explores more, lower refines more.
+    # None = pymoo's mixed-variable defaults (0.9 for positions/target, 1.0 for the
+    # yes/no switches), which is what the advanced notebook actually runs: its
+    # PolynomialMutation(prob=0.5) is ignored because it also passes its own mating.
+    mutation_prob: float | None = None
 
     # Gradient polish (DifferentiableTools), applied to the GA's designs.
     grad_steps: int = 200  # maximum number of steps
@@ -63,7 +67,7 @@ class Config:
                 )
         if self.grad_steps < 0 or self.step_size <= 0:
             raise ValueError("grad_steps must be >= 0 and step_size > 0")
-        if not 0 <= self.mutation_prob <= 1:
+        if self.mutation_prob is not None and not 0 <= self.mutation_prob <= 1:
             raise ValueError(
                 f"mutation_prob must be in [0, 1], got {self.mutation_prob}"
             )

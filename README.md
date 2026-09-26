@@ -10,15 +10,14 @@ Fatak Borhani, Joel Pederson, & Leif Akerley
 - **A conda installer.** [Miniforge](https://github.com/conda-forge/miniforge) is recommended (it ships
   `mamba` and defaults to conda-forge). Already have Anaconda or Miniconda? That works too — use `conda`
   wherever `mamba` appears below.
-  - macOS: `brew install miniforge`, or download the installer from the Miniforge page and run
+  - macOS (reccomended): `brew install miniforge`, or download the installer from the Miniforge page and run
     `bash Miniforge3-MacOSX-$(uname -m).sh`
-  - Windows: run the Miniforge `.exe` installer, then use the "Miniforge Prompt" for the commands below
   - Linux: `bash Miniforge3-Linux-$(uname -m).sh`
   - Then `conda init` (restart your terminal) so `conda activate` works.
 - **Git**, and access to this repo (ask Joel to add you as a collaborator).
 - **VS Code** with the Python and Jupyter extensions (or use JupyterLab, which the env includes).
 
-No conda at all? Use Colab instead — see [Running on Colab instead](#running-on-colab-instead).
+No conda at all? Use Colab instead — see [Running on Colab instead](#running-on-colab-instead), though this is not reccomended.
 
 ## Setup
 
@@ -45,6 +44,7 @@ before final submission. `LINKS` runs on JAX, pinned to CPU (`JAX_PLATFORMS=cpu`
 |---|---|---|
 | `run.py` *(coming)* | The real runs: all 3 kangaroos in parallel, minutes to overnight | `python run.py --preset quick` in a terminal. Saves `runs/<timestamp>/`, logs the score, updates `submissions/best.npy` when it improves |
 | `ps1_results.ipynb` *(coming)* | Visualize: scores, hypervolume plots, best mechanism per kangaroo vs. its target curve | Open, pick a run, **Run All**. It only loads saved results, so closing it never interrupts a run |
+| `explore.ipynb` | Hands-on tour: run the GA on one kangaroo, score it, plot it, pool seeds | Open, select **Python (ps1)**, run top to bottom (~30 s). Saves only to `runs/explore/` |
 | Any notebook | Quick interactive experiments | `from linkopt.config import preset` / `from linkopt.problem import MechanismProblem, evaluate` |
 | Starter / advanced notebooks | The course's explanations and examples | Read only. To experiment, work in a copy: `tests/test_problem.py` compares our code against the advanced notebook's original class cell |
 
@@ -97,7 +97,7 @@ setting name.
 | `n_start` | Random valid mechanisms the GA starts from | 16 | 50 | 200 |
 | `pop_size` | Designs per GA generation | 16 | 50 | 200 |
 | `n_gen` | GA generations | 3 | 30 | 150 |
-| `mutation_prob` | GA mutation rate: higher explores more, lower refines more | 0.5 | 0.5 | 0.5 |
+| `mutation_prob` | Chance a design is mutated: higher explores more, lower refines more. `None` = pymoo's defaults, which is what the advanced notebook actually runs (its `prob=0.5` is silently ignored) | `None` | `None` | `None` |
 | `grad_steps` | Maximum gradient-polish steps per design | 10 | 200 | 1000 |
 | `step_size` | Size of each gradient-polish step | 4e-4 | 4e-4 | 4e-4 |
 | `n_workers` | Parallel worker processes | 1 | 3 | 3 |
@@ -115,14 +115,16 @@ linkopt/          our framework
   submission.py     builds, checks and saves submissions (the only code that writes them)
   config.py         every run setting + the smoke / quick / full presets
   problem.py        the GA's view of a mechanism + fast batched scoring
+  ga.py             random starting mechanisms + the GA (NSGA-II) for one kangaroo
 score.py          check and score any submission file
+explore.ipynb     hands-on tour of the framework (one kangaroo)
 submissions/      best.npy (current best) + best_score.json; all *.npy here are checked by CI
 tests/            pytest suite (see "Tests and CI")
 LINKS/            course library, including the grader (LINKS/CP) - don't edit
 runs/             raw output of each run (git-ignored)
 ```
 
-## Running on Colab instead
+## Running on Colab instead (Not Reccomended)
 
 Open a notebook straight from GitHub:
 `https://colab.research.google.com/github/Joel-Pederson/2.156-ps1/blob/main/<notebook>.ipynb`
@@ -190,6 +192,10 @@ pytest                  # everything, including end-to-end runs (minutes)
   files in `submissions/` so they get checked.
 - Our submission tooling writes that format exactly, and a file
   scores the same when saved and reloaded (`tests/test_submission_format.py`).
+- Our GA is the advanced notebook's GA: given the same starting mechanisms, seed and scores, it
+  produces identical populations every generation (`tests/test_ga.py`, which also runs a small
+  GA end to end and scores its submission). `tests/test_problem.py` checks the variables,
+  conversions and scoring against the notebook's own class.
 - `submissions/best.npy` never scores below `submissions/best_score.json`
   (`tests/test_best_submission.py`). Only replace it with a better submission, and update the
   JSON in the same commit.
