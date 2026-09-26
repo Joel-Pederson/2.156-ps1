@@ -12,12 +12,14 @@ import json
 import sys
 
 import linkopt  # noqa: F401  (pins JAX to the CPU before LINKS imports it)
-from LINKS.CP import evaluate_submission
 from linkopt.submission import TARGET_CURVES_PATH, SubmissionError, load, validate
+from LINKS.CP import evaluate_submission
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("files", nargs="+", help="submission .npy files")
     parser.add_argument(
         "--strict",
@@ -40,8 +42,14 @@ def main(argv=None) -> int:
         for w in warnings:
             print(f"warning: {w}")
         counts = ", ".join(f"{k}: {len(v)}" for k, v in submission.items())
-        print(f"format OK ({'strict' if args.strict else 'grader-compatible'}); {counts}")
-        print(json.dumps(evaluate_submission(str(path), str(TARGET_CURVES_PATH)), indent=2))
+        print(
+            f"format OK ({'strict' if args.strict else 'grader-compatible'}); {counts}"
+        )
+        print(
+            json.dumps(
+                evaluate_submission(str(path), str(TARGET_CURVES_PATH)), indent=2
+            )
+        )
         print()
     return status
 

@@ -1,5 +1,6 @@
 # 2.156 — ps1
 September 2026. MIT. 2.156
+
 Fatak Borhani, Joel Pederson, & Leif Akerley
 
 **PS1 objective:** Design a linkage mechanism that can trace a target curve whilst minimizing material usage and complexity.
@@ -59,3 +60,15 @@ Notebooks merge badly. To avoid three-way conflicts on cell IDs and outputs:
   conda activate ps1 && nbdime config-git --enable
   ```
 - Notebooks are committed **with outputs** — the submission needs them.
+
+### Course-provided files
+
+Files copied from [decode-mit/2.156-CP1-2026](https://github.com/decode-mit/2.156-CP1-2026)
+(`LINKS/`, both starter notebooks, `kangaroo_target_curves.npy`, `starter_mechanism.npy`) stay
+as the course shipped them. If you change one beyond comments, put a notice at the very top:
+
+- `.py`: a comment block starting `# Modified by team:` plus one line per change.
+- `.ipynb`: a first markdown cell starting `> **Modified by team**` with a bullet per change.
+
+Currently modified: both starter notebooks (Colab setup cell; see the notice at the top of each).
+`LINKS/` and the data files are byte-identical to the course repo.
