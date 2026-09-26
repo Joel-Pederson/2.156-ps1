@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+markers = [
+    "slow: end-to-end optimization runs (minutes); skip with -m 'not slow'",
+]
+filterwarnings = [
+    # Raised inside the course's LINKS code (jax.jit(..., device=...)); not ours to fix.
+    "ignore:backend and device argument on jit is deprecated:DeprecationWarning",
+]
