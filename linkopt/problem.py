@@ -48,7 +48,7 @@ from pymoo.core.variable import Binary, Integer, Real
 
 from linkopt.config import MIN_JOINTS
 from LINKS.CP import MAX_JOINTS
-from LINKS.Optimization import Tools
+from LINKS.Optimization import Tools  # the course's scorer (simulate + measure)
 
 MOTOR = np.array([0, 1])  # every mechanism's motor link, in this representation
 
@@ -56,10 +56,19 @@ _TOOLS = None
 
 
 def tools() -> Tools:
-    """This process's compiled LINKS scorer, with the grader's settings.
+    """Our one compiled copy of the course's scorer, `Tools` (from LINKS).
 
-    Kept at module level rather than on the problem (the notebooks do the same,
-    because pymoo deep-copies problems).
+    `Tools` is the course's code: given mechanisms and a target curve, it simulates
+    each mechanism through a full motor turn and returns its distance and material.
+    This helper is ours. It creates one `Tools` with exactly the settings the
+    course's grader (`evaluate_submission`) uses, so we optimize the same numbers
+    the grader computes. It builds that copy on the first call and hands back the
+    same copy on every later call. JAX compiles the simulator the first time it sees
+    each batch size (about a second each), which is why `evaluate` pads batches to a
+    few fixed sizes. The notebooks do the same with their `PROBLEM_TOOLS`.
+
+    Kept at module level rather than on the problem because pymoo deep-copies the
+    problem object, and the notebooks note the compiled scorer can't be deep-copied.
     """
     global _TOOLS
     if _TOOLS is None:  # build + compile once, then reuse
@@ -84,9 +93,9 @@ def evaluate(mechs: Sequence[Mapping], target_curve) -> tuple[np.ndarray, np.nda
     """Score every mechanism against one target curve, in one batched LINKS call.
 
     Returns two arrays with one number per mechanism:
-        distance  how far the target joint's path is from the target curve (after
-                  the grader's best shift and rotation, no resizing); lower is better
-        material  total length of all links; lower is better
+        distance:  how far the target joint's path is from the target curve (after
+                   the grader's best shift and rotation, no resizing); lower is better
+        material:  total length of all links; lower is better
     A target_joint of None means the grader's default joint. Designs that can't be
     simulated get inf, as in LINKS.
 
@@ -99,7 +108,8 @@ def evaluate(mechs: Sequence[Mapping], target_curve) -> tuple[np.ndarray, np.nda
     # Pad with copies of the first mechanism up to a fixed batch size (avoids JAX
     # recompiles); the copies' results are thrown away below.
     padded = list(mechs) + [mechs[0]] * (batch_size_for(n) - n)
-    # One LINKS call for the whole batch: it takes a list per field.
+    # Score the whole batch in one call to the course's provided scorer (tools() returns
+    # our compiled copy of it). It takes one list per field, one entry per mechanism.
     distance, material = tools()(
         [np.asarray(m["x0"]) for m in padded],
         [np.asarray(m["edges"]) for m in padded],
@@ -129,7 +139,9 @@ def mixed_variables(n_joints: int) -> dict:
 
 class MechanismProblem(Problem):
     """The problem pymoo solves: minimize (distance, material), subject to
-    distance <= limit and material <= limit, over N-joint mechanisms."""
+    distance <= limit and material <= limit, over N-joint mechanisms.
+    Adapted from mechanism_synthesis_optimization in the advanced notebook, but it
+    scores a whole population at once rather than one design at a time."""
 
     def __init__(self, target_curve, reference_point, n_joints: int):
         if not MIN_JOINTS <= n_joints <= MAX_JOINTS:

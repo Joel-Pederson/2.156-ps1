@@ -1,24 +1,18 @@
-"""Steps 1-2 of the pipeline: random valid starting mechanisms, then NSGA-II.
+"""Run the genetic algorithm (NSGA-II) on one kangaroo.
 
-    random valid mechanisms --from_mech--> GA population --NSGA-II--> best designs
-    (make_start_population)                 (run_ga)                   (GAResult)
+This is the advanced notebook's GA, from "Now let's generate 100 mechanisms of
+size 7" onward. The pipeline:
 
-This is the advanced notebook's GA ("Now let's generate 100 mechanisms of size 7
-and initialize a population for optimization" onward) on our batched
-MechanismProblem:
+    1. make_start_population   random mechanisms that move (don't jam)
+    2. run_ga                  NSGA-II evolves them toward the kangaroo
+    3. GAResult                the best designs it found, ready to submit
 
-    make_start_population   MechanismRandomizer: random mechanisms that simulate.
-                            Starting from these is what lets the GA find anything;
-                            the notebook shows that fully random variables fail.
-    run_ga                  NSGA-II over links, positions, fixed joints and target
-                            joint, started from those mechanisms.
-
-Differences from the notebook: `mutation_prob` really sets the mutation rate (the
-notebook's setting is ignored, see Config.mutation_prob), and history isn't saved.
+Two differences from the notebook: mutation_prob actually sets the mutation rate
+(the notebook's setting is silently ignored), and the GA history isn't saved.
 """
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 from pymoo.algorithms.moo.nsga2 import NSGA2
@@ -36,109 +30,122 @@ from linkopt.submission import TARGET_CURVES_PATH
 from LINKS.CP import MAX_JOINTS, REFERENCE_POINTS
 from LINKS.Optimization import MechanismRandomizer
 
-_RANDOMIZER = None
+# One randomizer for the whole file. MechanismRandomizer is the course staff's code
+# (from LINKS); this is our one copy of it. Making it is instant; its first use takes
+# about a second (JAX compiles the simulator), and every use after that is fast.
+RANDOMIZER = MechanismRandomizer(max_size=MAX_JOINTS, device="cpu")
 
 
-def randomizer() -> MechanismRandomizer:
-    """This process's MechanismRandomizer (built once; it compiles a solver)."""
-    global _RANDOMIZER
-    if _RANDOMIZER is None:
-        _RANDOMIZER = MechanismRandomizer(max_size=MAX_JOINTS, device="cpu")
-    return _RANDOMIZER
-
-
-def target_curve(target: int) -> np.ndarray:
-    """Kangaroo `target + 1`'s outline (200 x 2)."""
+def target_curve(target):
+    """Outline of kangaroo `target` (0, 1 or 2) as a 200 x 2 array."""
     return np.load(TARGET_CURVES_PATH)[target]
 
 
-def make_start_population(n_joints: int, count: int, seed: int) -> list[dict]:
-    """`count` random mechanisms with `n_joints` joints that simulate (the notebook's
-    `[randomizer(n=7) for _ in trange(100)]`), reproducible for a given seed.
+def make_start_population(n_joints, count, seed):
+    """Make `count` random mechanisms with `n_joints` joints each.
 
-    Each is a mechanism dict (x0, edges, fixed_joints, motor = [0, 1]) without a
-    target_joint; they simulate, but usually trace nothing like a kangaroo.
+    Every one moves without jamming, but traces a random blob, likely not a kangaroo.
+    Each is a dict with x0, edges, fixed_joints and motor (always [0, 1]).
+    The same seed always gives the same mechanisms.
     """
-    # Same seed -> same mechanisms. MechanismRandomizer draws from numpy's global
-    # random generator, so seeding it here makes the whole run repeatable.
-    np.random.seed(seed)
-    r = randomizer()
-    return [r(n=n_joints) for _ in range(count)]
+    np.random.seed(seed)  # the randomizer uses numpy's global random numbers
+    return [RANDOMIZER(n=n_joints) for _ in range(count)]
 
 
 class _FromDesigns(Sampling):
-    """Start the GA from given designs, cycling through them if the population is
-    larger (the notebook's `sample_from_random`).
+    """Tells pymoo to start the GA from our designs instead of random numbers.
 
-    In pymoo, a "sampling" is what creates the first generation; the default one
-    picks fully random variables, which the notebook shows doesn't work here.
+    pymoo asks for `n_samples` designs (the population size); if we have fewer,
+    we cycle through ours. This is the notebook's `sample_from_random`.
     """
 
     def __init__(self, designs):
         super().__init__()
-        self.designs = designs  # GA-variable dicts (from MechanismProblem.from_mech)
+        self.designs = designs
 
     def _do(self, problem, n_samples, **kwargs):
-        # pymoo asks for n_samples designs (= pop_size); reuse ours in a cycle.
         return np.array([self.designs[i % len(self.designs)] for i in range(n_samples)])
 
 
-def _mating(mutation_prob: float | None) -> MixedVariableMating:
-    """How children are made each generation: pick parents, cross them over, then
-    mutate, with an operator per variable type (yes/no, real, integer), and never
-    produce a child identical to an existing design.
+def _mating(mutation_prob):
+    """How the GA makes children: crossover, then mutation, no duplicates.
 
-    mutation_prob None keeps pymoo's defaults (what the notebook actually runs);
-    a number sets the chance that each child is mutated, for every variable type.
+    mutation_prob = None  -> pymoo's default mutation (what the notebook runs)
+    mutation_prob = 0.3   -> each child has a 30% chance of mutating
+
+    The professor emphasized that tuning this gives diminishing returns, so don't
+    over-index on it.
     """
-    dedupe = MixedVariableDuplicateElimination()
-    if mutation_prob is None:  # pymoo's defaults: what the notebook actually runs
-        return MixedVariableMating(eliminate_duplicates=dedupe)
+    no_duplicates = MixedVariableDuplicateElimination()
+
+    if mutation_prob is None:
+        return MixedVariableMating(eliminate_duplicates=no_duplicates)
+
+    # One mutation rule per kind of variable.
     mutation = {
-        Binary: BFM(prob=mutation_prob),  # flips yes/no switches (links, fixed joints)
-        Real: PM(prob=mutation_prob),  # nudges positions (polynomial mutation)
-        # the target joint: nudged as a number, then rounded back to a whole joint
+        Binary: BFM(prob=mutation_prob),  # yes/no (links, fixed joints): flip it
+        Real: PM(prob=mutation_prob),  # positions: nudge the number
+        # target joint: nudge as a number, then round back to a whole joint
         Integer: PM(prob=mutation_prob, vtype=float, repair=RoundingRepair()),
     }
-    return MixedVariableMating(mutation=mutation, eliminate_duplicates=dedupe)
+    return MixedVariableMating(mutation=mutation, eliminate_duplicates=no_duplicates)
 
 
 @dataclass
 class GAResult:
-    """What one GA job returns."""
+    """Everything one GA run returns (like a MATLAB struct with fixed fields)."""
 
-    target: int  # kangaroo index (0 = Kangaroo 1)
+    target: int  # which kangaroo (0 = Kangaroo 1)
     n_joints: int  # mechanism size used
     seed: int  # random seed used
-    designs: list[dict]  # the final feasible non-dominated designs, as mechanism dicts
-    F: np.ndarray  # their [distance, material], one row per design (same order)
-    n_evals: int  # how many designs the GA scored in total
-    seconds: float  # wall-clock time of the job
-    # [distance, material] of the starting mechanisms, for before/after comparisons
-    start_F: np.ndarray = field(repr=False)
+    designs: list  # best designs found, as mechanism dicts
+    F: np.ndarray  # [distance, material] of each design, same order
+    n_evals: int  # total designs scored during the run
+    seconds: float  # how long the run took
+    start_F: np.ndarray  # [distance, material] of the starting mechanisms
 
 
-def run_ga(
-    target: int, n_joints: int, seed: int, cfg: Config, verbose: bool = False
-) -> GAResult:
-    """One GA job: NSGA-II on kangaroo `target` with `n_joints`-joint mechanisms.
+def run_ga(target, n_joints, seed, cfg: Config, verbose=False):
+    """Run NSGA-II on kangaroo `target` using `n_joints`-joint mechanisms.
 
-    Returns the feasible non-dominated designs (possibly none, if the GA never got
-    within the kangaroo's distance and material limits).
+    Returns a GAResult. Its designs list is empty if the GA never got inside
+    the kangaroo's distance and material limits.
     """
-    t0 = time.perf_counter()
+    start_time = time.perf_counter()
 
-    # 1. The problem: this kangaroo's outline and limits, N-joint mechanisms.
+    # 1. The problem: what the GA is optimizing. MechanismProblem takes
+    #    - target_curve(target):      the kangaroo outline to match, a 200 x 2
+    #                                 array of (x, y) points
+    #                                 (0 = Kangaroo 1 ... 2 = Kangaroo 3)
+    #    - REFERENCE_POINTS[target]:  that kangaroo's limits,
+    #                                 [max distance, max material], e.g. [1.2, 10.0]
+    #                                 for Kangaroo 2. Designs over either limit are
+    #                                 infeasible; it's also the hypervolume corner.
+    #    - n_joints:                  how many joints every mechanism has (5 to 20);
+    #                                 this fixes how many variables the GA changes
     problem = MechanismProblem(target_curve(target), REFERENCE_POINTS[target], n_joints)
 
-    # 2. The starting designs: random valid mechanisms, flattened into GA variables.
-    start = [
-        problem.from_mech(m) for m in make_start_population(n_joints, cfg.n_start, seed)
-    ]
-    start_F = problem.evaluate(np.array(start), return_values_of=["F"])  # for reference
+    # 2. Starting designs: random mechanisms, converted to the GA's variables.
+    #    make_start_population takes
+    #    - n_joints:     joints per mechanism (must match the problem above)
+    #    - cfg.n_start:  how many random mechanisms to make (50 in the "quick" preset)
+    #    - seed:         same seed -> same mechanisms, so runs are repeatable
+    #    problem.from_mech(m) flattens one mechanism dict (x0, edges, fixed_joints,
+    #    motor) into the named yes/no switches and numbers the GA works with. With no
+    #    target_joint given, the last joint is used as the traced joint.
+    #    problem.evaluate scores the starting designs; start_F is one row of
+    #    [distance, material] per design, kept only to compare before vs after.
+    start_mechs = make_start_population(n_joints, cfg.n_start, seed)
+    start = [problem.from_mech(m) for m in start_mechs]
+    start_F = problem.evaluate(np.array(start), return_values_of=["F"])
 
-    # 3. The GA: NSGA-II, starting from our designs, with our mating (crossover +
-    #    mutation) settings, and no duplicate designs in the population.
+    # 3. Set up the GA. NSGA2 takes
+    #    - pop_size:              designs per generation (cfg.pop_size, 50 in "quick")
+    #    - sampling:              where generation 1 comes from: our starting designs,
+    #                             reused in a cycle if pop_size is bigger than n_start
+    #    - mating:                how children are made: crossover, then mutation at
+    #                             rate cfg.mutation_prob (None = pymoo's defaults)
+    #    - eliminate_duplicates:  drop any child identical to an existing design
     algorithm = NSGA2(
         pop_size=cfg.pop_size,
         sampling=_FromDesigns(start),
@@ -146,18 +153,26 @@ def run_ga(
         eliminate_duplicates=MixedVariableDuplicateElimination(),
     )
 
-    # 4. Run it for n_gen generations. pymoo calls problem._evaluate once per
-    #    generation with the whole population. seed makes the run repeatable.
+    # 4. Run it. minimize takes
+    #    - problem, algorithm:     from steps 1 and 3
+    #    - ("n_gen", cfg.n_gen):   when to stop: after n_gen generations (30 in "quick")
+    #    - seed:                   makes the GA's own random choices repeatable
+    #    - verbose:                True prints a progress table each generation
+    #    It returns res, pymoo's result object (res.opt is used below).
     res = minimize(problem, algorithm, ("n_gen", cfg.n_gen), seed=seed, verbose=verbose)
 
-    # 5. The result: res.opt is the feasible non-dominated set (inside both limits,
-    #    and not beaten on both objectives), or None if nothing got inside the limits.
-    #    Un-flatten each back into a mechanism dict, ready for submission.
+    # 5. Collect the best designs. res.opt holds the designs that are inside both
+    #    limits and not beaten on both distance and material (None if there are none).
+    #    - res.opt.get("X"):  those designs as GA variables; problem.to_mech un-flattens
+    #                         each back into a mechanism dict, ready for submission
+    #    - res.opt.get("F"):  their [distance, material], one row per design, same order
     if res.opt is None:
-        designs, F = [], np.empty((0, 2))
+        designs = []
+        F = np.empty((0, 2))
     else:
         designs = [problem.to_mech(x) for x in res.opt.get("X")]
         F = res.opt.get("F")
+
     return GAResult(
         target=target,
         n_joints=n_joints,
@@ -165,6 +180,6 @@ def run_ga(
         designs=designs,
         F=F,
         n_evals=res.algorithm.evaluator.n_eval,
-        seconds=time.perf_counter() - t0,
+        seconds=time.perf_counter() - start_time,
         start_F=start_F,
     )
