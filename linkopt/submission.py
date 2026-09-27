@@ -19,6 +19,15 @@ Two levels of checking:
                   (it stores motor as a list and target_joint as None).
     strict=True   the exact types above, with target_joint always set. Everything
                   this framework writes is strict.
+
+Typical use, at the end of a run:
+    submission = build_submission({0: designs_k1, 1: designs_k2, 2: designs_k3})
+    scores = save(submission, "submissions/best.npy")   # checked + graded
+
+Why so careful: the grader rarely crashes on a bad file. It silently skips
+malformed entries, anything past 1000, and mechanisms over 20 joints, and picks
+its own joint when target_joint is missing, so a broken file still "works" and
+just scores lower.
 """
 
 from collections import defaultdict
@@ -64,6 +73,8 @@ def to_entry(mech: Mapping) -> dict:
     if missing:
         raise SubmissionError(f"mechanism is missing {missing}")
 
+    # Convert every field to the exact type the starter notebook's format asks for,
+    # then run the same checks validate() uses, so a bad entry never gets built.
     entry = {
         "x0": np.asarray(mech["x0"], dtype=np.float64),
         "edges": _as_int_array(mech["edges"], "edges"),
@@ -83,12 +94,16 @@ def fill_default_target_joints(mechs: Sequence[Mapping]) -> list[dict]:
 
     Use this to bring starter-notebook style designs (target_joint=None) into the
     strict format without changing their score.
+
+    ("Solve order": LINKS works out joint positions one after another, each from
+    joints already placed; the last joint solved is the one the grader defaults to.)
     """
     from LINKS.Optimization import Tools  # imported here: only needed for this helper
 
-    mechs = [dict(m) for m in mechs]
+    mechs = [dict(m) for m in mechs]  # copies: don't modify the caller's designs
     todo = [i for i, m in enumerate(mechs) if m.get("target_joint") is None]
     if todo:
+        # Ask LINKS for each mechanism's solve order, and take the last joint.
         orders = (
             Tools(device="cpu")
             .get_preprocessed(
@@ -132,8 +147,9 @@ def validate(submission, strict: bool = True) -> list[str]:
 
     errors: list[str] = []
     warnings: list[str] = []
-    expected = [problem_key(i) for i in range(N_PROBLEMS)]
+    expected = [problem_key(i) for i in range(N_PROBLEMS)]  # 'Problem 1'..'Problem 3'
 
+    # 1. The top level: exactly the three problem keys.
     for key in expected:
         if key not in submission:
             errors.append(f"missing key '{key}' (the grader scores it as 0)")
@@ -141,6 +157,7 @@ def validate(submission, strict: bool = True) -> list[str]:
     if unknown:
         warnings.append(f"unrecognized keys {unknown} are ignored by the grader")
 
+    # 2. Each problem: a list of at most 1000 mechanisms, each checked on its own.
     for key in expected:
         mechs = submission.get(key)
         if mechs is None:
@@ -203,16 +220,21 @@ def save(
             f"{path}: must end in .npy (np.save would silently append it)"
         )
 
-    validate(submission, strict=True)
+    validate(submission, strict=True)  # 1. check before writing anything
     path.parent.mkdir(parents=True, exist_ok=True)
-    np.save(path, submission, allow_pickle=True)
+    np.save(path, submission, allow_pickle=True)  # 2. write (the dict is pickled)
 
-    validate(load(path), strict=True)
-    return evaluate_submission(str(path), str(target_curves))
+    validate(load(path), strict=True)  # 3. re-read it the way the grader will, re-check
+    return evaluate_submission(str(path), str(target_curves))  # 4. the grader's score
 
 
 def _check_entry(mech, strict: bool):
-    """Return (errors, warnings) for one mechanism."""
+    """Return (errors, warnings) for one mechanism.
+
+    Errors are things the grader would reject, skip, or mis-score. Wrong types
+    (e.g. a list instead of an array) are errors when strict, warnings otherwise.
+    """
+    # The four fields the grader needs; without them it silently skips the entry.
     if not isinstance(mech, Mapping):
         return [f"entry is a {type(mech).__name__}, not a dict"], []
     missing = [k for k in REQUIRED_KEYS if k not in mech]
@@ -223,6 +245,8 @@ def _check_entry(mech, strict: bool):
     warnings: list[str] = []
     type_issues = errors if strict else warnings
 
+    # x0: an N x 2 array of positions; N is the joint count everything else is checked
+    # against (at most 20 joints).
     try:
         x0 = np.asarray(mech["x0"], dtype=np.float64)
     except (TypeError, ValueError):
@@ -235,6 +259,8 @@ def _check_entry(mech, strict: bool):
     if not np.all(np.isfinite(x0)):
         errors.append("x0 contains NaN or inf")
 
+    # edges, fixed_joints, motor: whole-number joint indices, the right shape, and
+    # only referring to joints that exist (0..N-1).
     shapes = {"edges": "(E, 2)", "fixed_joints": "(F,)", "motor": "(2,)"}
     for name, shape in shapes.items():
         value = mech[name]
@@ -270,6 +296,7 @@ def _check_entry(mech, strict: bool):
             f"x0 is a {type(mech['x0']).__name__}, the format asks for np.ndarray"
         )
 
+    # target_joint: set (otherwise the grader picks one) and a real joint.
     target = mech.get("target_joint")
     if target is None:
         type_issues.append(
@@ -304,12 +331,16 @@ def _as_int_array(value, name: str) -> np.ndarray:
 
 
 def _as_int(value, name: str) -> int:
+    """A plain Python int (True/False are rejected, even though Python counts them
+    as integers)."""
     if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
         raise SubmissionError(f"{name} must be an integer, got {value!r}")
     return int(value)
 
 
 def _grouped(key: str, indices: list[int], total: int, msg: str) -> str:
+    """One readable line for a message that applies to many entries, e.g.
+    "Problem 2 entries [0, 1, 2, 3, 4, ...] (18 of 18): motor is a list"."""
     if len(indices) == 1:
         return f"{key} entry {indices[0]}: {msg}"
     shown = ", ".join(map(str, indices[:5])) + (", ..." if len(indices) > 5 else "")
