@@ -42,7 +42,7 @@ before final submission. `LINKS` runs on JAX, pinned to CPU (`JAX_PLATFORMS=cpu`
 
 | Where | What it's for | How |
 |---|---|---|
-| `run.py` *(coming)* | The real runs: all 3 kangaroos in parallel, minutes to overnight | `python run.py --preset quick` in a terminal. Saves `runs/<timestamp>/`, logs the score, updates `submissions/best.npy` when it improves |
+| `run.py` | The real runs: all 3 kangaroos in parallel, minutes to overnight | `python run.py --preset quick` in a terminal. Saves `runs/<timestamp>/`, logs the score, updates `submissions/best.npy` when it improves |
 | `ps1_results.ipynb` *(coming)* | Visualize: scores, hypervolume plots, best mechanism per kangaroo vs. its target curve | Open, pick a run, **Run All**. It only loads saved results, so closing it never interrupts a run |
 | `explore.ipynb` | Hands-on tour: run the GA on one kangaroo, score it, plot it, pool seeds | Open, select **Python (ps1)**, run top to bottom (~30 s). Saves only to `runs/explore/` |
 | Any notebook | Quick interactive experiments | `from linkopt.config import preset` / `from linkopt.problem import MechanismProblem, evaluate` |
@@ -57,7 +57,7 @@ number of times without re-optimizing.
 1. Change an idea in `linkopt/`, or a setting (presets live in `linkopt/config.py`).
 2. Run it: `python run.py --preset smoke` to check it works (~1 min), then `--preset quick` or
    `full` for a real score.
-3. Look at the result in `ps1_results.ipynb`.
+3. Read the run's summary (and, once it exists, `ps1_results.ipynb`).
 4. If the score beat `submissions/best_score.json`, `best.npy` and the JSON are updated;
    commit both together.
 5. Push. CI checks the submission against every starter-notebook requirement.
@@ -77,7 +77,7 @@ cfg = preset("full", targets=(0,), n_joints=(6, 8))    # full run on Kangaroo 1 
 cfg = Config(pop_size=100, n_gen=40)                   # no preset: defaults for everything else
 ```
 
-From the terminal *(coming with `run.py`)*: the same settings as flags.
+From the terminal, the same settings as flags (see [Running experiments](#running-experiments)):
 
 ```bash
 python run.py --preset smoke                               # does it run? (~1 min)
@@ -105,6 +105,44 @@ setting name.
 One GA run happens per combination of `targets` × `n_joints` × `seeds`: `full` is
 3 × 3 × 5 = 45 runs. Each setting has a one-line explanation in `linkopt/config.py`.
 
+### Running experiments
+
+`run.py` runs one **job** per kangaroo x mechanism size x seed: the GA, then gradient
+refinement of its designs. Jobs run in parallel; each is saved the moment it finishes; at the
+end everything is pooled into `submissions/best.npy` if the grader's score improves.
+
+```bash
+conda activate ps1
+python run.py --preset smoke                      # does it work? (~1 min)
+python run.py --preset quick --dry-run            # list the jobs + a rough time; runs nothing
+python run.py --preset quick --seeds 0-49         # 50 replicates (seed ranges: 0-49, or 0 1 2)
+python run.py --preset full --n-joints 10 12      # override any setting (see the table above)
+caffeinate -i python run.py --preset full         # long runs: keeps the Mac awake
+python run.py --resume runs/20261001-221500       # finish a stopped run (only the missing jobs)
+```
+
+| Option | What it does |
+|---|---|
+| `--dry-run` | Lists the jobs and a rough time estimate; runs nothing |
+| `--workers N` | Parallel processes (`0` = run in this process, so the debugger can step in) |
+| `--refine-best` | Also refine the designs already in `best.npy` (no GA), as extra jobs |
+| `--no-update-best` | Don't touch `best.npy` (add the run later with `python merge.py runs/<run>/submission.npy`) |
+| `--resume RUN_DIR` | Run only the jobs a stopped run didn't finish, with its saved settings |
+
+While it runs you'll see one line per finished job and a progress bar with the time remaining.
+**Ctrl+C once** stops cleanly: finished jobs are kept and pooled, and `--resume` finishes the
+rest. Ctrl+C twice quits immediately (finished jobs are still saved).
+
+Each run gets its own folder, `runs/<date-time>/` (git-ignored):
+
+| File | Contents |
+|---|---|
+| `config.json` | Every setting, the exact command, the git commit of the code |
+| `jobs/` | Each job's designs, saved as it finishes |
+| `jobs.csv` | One row per job: kangaroo, size, seed, hypervolume before/after refining, time |
+| `submission.npy`, `scores.json` | This run's designs alone, scored by the grader |
+| `summary.txt` | The summary printed at the end (this run's score, and whether `best.npy` improved) |
+
 **Submitting:** upload `submissions/best.npy` to the leaderboard. Check it first with
 `python score.py --strict submissions/best.npy`.
 
@@ -118,6 +156,8 @@ linkopt/          our framework
   ga.py             random starting mechanisms + the GA (NSGA-II) for one kangaroo
   refine.py         fine-tunes the GA's designs with gradients (joint positions only)
   archive.py        pools designs into the best submission; keeps best.npy improving
+  pipeline.py       runs many jobs (GA -> refine) in parallel, saves each, pools the run
+run.py            the command for real runs (see "Running experiments")
 score.py          check and score any submission file
 merge.py          pool submission files (teammates', saved runs) into best.npy if better
 explore.ipynb     hands-on tour of the framework (one kangaroo)
@@ -154,7 +194,7 @@ Notebooks merge badly. To avoid three-way conflicts on cell IDs and outputs:
 ### Protecting `submissions/best.npy`
 
 `best.npy` is the team's best submission, built up over many runs. Only change it through
-`merge.py` (or `run.py`, coming), which pool new designs **with** the current best and replace
+`merge.py` or `run.py`, which pool new designs **with** the current best and replace
 it only if the grader's score goes up, so it can never get worse:
 
 ```bash
@@ -180,7 +220,7 @@ python merge.py fatak.npy leif.npy    # pool with best.npy; saved only if the sc
 
 ```bash
 conda activate ps1
-ruff check linkopt tests score.py merge.py
+ruff check linkopt tests score.py merge.py run.py
 pytest -m "not slow"    # seconds: notebook requirements, format, best-submission guard
 pytest                  # everything, including end-to-end runs (minutes)
 ```

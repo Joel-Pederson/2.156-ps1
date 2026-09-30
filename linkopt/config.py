@@ -50,7 +50,9 @@ class Config:
     step_sizes: tuple[float, ...] = (4e-4, 1e-4, 3e-5)
 
     # Execution.
-    n_workers: int = 3  # parallel worker processes
+    # Parallel worker processes (0 = run every job in this process, one at a time:
+    # slower, but the debugger can step into it).
+    n_workers: int = 3
 
     def __post_init__(self):
         for name in ("targets", "n_joints", "seeds", "step_sizes"):  # lists -> tuples
@@ -68,11 +70,13 @@ class Config:
             )
         if not self.seeds:
             raise ValueError("seeds must not be empty")
-        for name in ("n_start", "pop_size", "n_gen", "n_workers"):
+        for name in ("n_start", "pop_size", "n_gen"):
             if getattr(self, name) < 1:
                 raise ValueError(
                     f"{name} must be at least 1, got {getattr(self, name)}"
                 )
+        if self.n_workers < 0:
+            raise ValueError(f"n_workers must be >= 0, got {self.n_workers}")
         if self.grad_steps < 0:
             raise ValueError(f"grad_steps must be >= 0, got {self.grad_steps}")
         if not self.step_sizes or any(s <= 0 for s in self.step_sizes):
