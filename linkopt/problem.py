@@ -89,6 +89,23 @@ def batch_size_for(n: int) -> int:
     return max(8, -(-n // 8) * 8)  # -(-n // 8) is n / 8 rounded up
 
 
+# How far inside the limits a design must be before we count it as "inside".
+# LINKS computes in float32, so the same design's scores shift by ~1e-6 (relative)
+# between calls, and the grader requires strictly < limit. A 1e-4 relative margin
+# (e.g. distance <= 0.749925 for Kangaroo 1's limit of 0.75) is 100x that noise.
+LIMIT_MARGIN = 1e-4
+
+
+def safe_limits(reference_point, margin: float = LIMIT_MARGIN) -> np.ndarray:
+    """The (distance, material) limits, shrunk by `margin` (relative).
+
+    A design whose scores are <= these is strictly inside the real limits, with
+    room for float32 noise, so the grader will count it too. margin=0 gives the
+    real limits.
+    """
+    return np.asarray(reference_point, dtype=float) * (1 - margin)
+
+
 def evaluate(mechs: Sequence[Mapping], target_curve) -> tuple[np.ndarray, np.ndarray]:
     """Score every mechanism against one target curve, in one batched LINKS call.
 

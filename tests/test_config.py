@@ -25,7 +25,8 @@ def test_preset_overrides():
         {"seeds": ()},
         {"pop_size": 0},
         {"mutation_prob": 1.5},
-        {"step_size": 0},
+        {"step_sizes": ()},
+        {"step_sizes": (4e-4, 0)},
     ],
 )
 def test_invalid_settings_are_rejected(bad):

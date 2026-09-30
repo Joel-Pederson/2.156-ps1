@@ -97,9 +97,9 @@ setting name.
 | `n_start` | Random valid mechanisms the GA starts from | 16 | 50 | 200 |
 | `pop_size` | Designs per GA generation | 16 | 50 | 200 |
 | `n_gen` | GA generations | 3 | 30 | 150 |
-| `mutation_prob` | Chance a design is mutated: higher explores more, lower refines more. `None` = pymoo's defaults, which is what the advanced notebook actually runs (its `prob=0.5` is silently ignored) | `None` | `None` | `None` |
-| `grad_steps` | Maximum gradient-polish steps per design | 10 | 200 | 1000 |
-| `step_size` | Size of each gradient-polish step | 4e-4 | 4e-4 | 4e-4 |
+| `mutation_prob` | Chance a design is mutated: higher explores more, lower keeps children closer to their parents. `None` = pymoo's defaults, which is what the advanced notebook actually runs (its `prob=0.5` is silently ignored) | `None` | `None` | `None` |
+| `grad_steps` | Maximum gradient-refinement steps per design | 10 | 200 | 1000 |
+| `step_sizes` | Gradient-refinement step sizes to try; each design keeps the one that gave it the lowest distance | `(4e-4, 1e-4, 3e-5)` | `(4e-4, 1e-4, 3e-5)` | `(4e-4, 1e-4, 3e-5)` |
 | `n_workers` | Parallel worker processes | 1 | 3 | 3 |
 
 One GA run happens per combination of `targets` × `n_joints` × `seeds`: `full` is
@@ -116,6 +116,7 @@ linkopt/          our framework
   config.py         every run setting + the smoke / quick / full presets
   problem.py        the GA's view of a mechanism + fast batched scoring
   ga.py             random starting mechanisms + the GA (NSGA-II) for one kangaroo
+  refine.py         fine-tunes the GA's designs with gradients (joint positions only)
 score.py          check and score any submission file
 explore.ipynb     hands-on tour of the framework (one kangaroo)
 submissions/      best.npy (current best) + best_score.json; all *.npy here are checked by CI
@@ -196,6 +197,9 @@ pytest                  # everything, including end-to-end runs (minutes)
   produces identical populations every generation (`tests/test_ga.py`, which also runs a small
   GA end to end and scores its submission). `tests/test_problem.py` checks the variables,
   conversions and scoring against the notebook's own class.
+- Our refinement loop is the advanced notebook's gradient loop (identical positions, bit for bit,
+  `tests/test_refine.py`), and every refined design stays inside the limits and is never worse
+  in distance than the GA design it started from.
 - `submissions/best.npy` never scores below `submissions/best_score.json`
   (`tests/test_best_submission.py`). Only replace it with a better submission, and update the
   JSON in the same commit.

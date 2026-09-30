@@ -35,21 +35,25 @@ class Config:
     # GA (NSGA-II over connectivity, positions, fixed joints and target joint).
     pop_size: int = 50  # designs per generation
     n_gen: int = 30  # generations
-    # Chance that a design is mutated; higher explores more, lower refines more.
-    # None = pymoo's mixed-variable defaults (0.9 for positions/target, 1.0 for the
+    # Chance that a design is mutated: higher explores more, lower keeps children
+    # closer to their parents. None = pymoo's mixed-variable defaults (0.9 for positions/target, 1.0 for the
     # yes/no switches), which is what the advanced notebook actually runs: its
     # PolynomialMutation(prob=0.5) is ignored because it also passes its own mating.
     mutation_prob: float | None = None
 
-    # Gradient polish (DifferentiableTools), applied to the GA's designs.
+    # Gradient refinement (DifferentiableTools), applied to the GA's designs.
     grad_steps: int = 200  # maximum number of steps
-    step_size: float = 4e-4  # size of each step
+    # Step sizes to try. Each design is refined once per size and keeps whichever
+    # gave it the lowest distance: no single size suits every design (4e-4, the
+    # notebook's, does best on GA designs; the baseline's Kangaroo 1 designs only
+    # improve with smaller steps, 0.43 -> 1.07 hypervolume at 3e-5).
+    step_sizes: tuple[float, ...] = (4e-4, 1e-4, 3e-5)
 
     # Execution.
     n_workers: int = 3  # parallel worker processes
 
     def __post_init__(self):
-        for name in ("targets", "n_joints", "seeds"):  # accept lists, store tuples
+        for name in ("targets", "n_joints", "seeds", "step_sizes"):  # lists -> tuples
             object.__setattr__(self, name, tuple(getattr(self, name)))
         if not self.targets or any(not 0 <= t < N_PROBLEMS for t in self.targets):
             raise ValueError(
@@ -69,8 +73,10 @@ class Config:
                 raise ValueError(
                     f"{name} must be at least 1, got {getattr(self, name)}"
                 )
-        if self.grad_steps < 0 or self.step_size <= 0:
-            raise ValueError("grad_steps must be >= 0 and step_size > 0")
+        if self.grad_steps < 0:
+            raise ValueError(f"grad_steps must be >= 0, got {self.grad_steps}")
+        if not self.step_sizes or any(s <= 0 for s in self.step_sizes):
+            raise ValueError(f"step_sizes must be positive, got {self.step_sizes}")
         if self.mutation_prob is not None and not 0 <= self.mutation_prob <= 1:
             raise ValueError(
                 f"mutation_prob must be in [0, 1], got {self.mutation_prob}"
