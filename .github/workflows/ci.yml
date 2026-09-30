@@ -1,0 +1,30 @@
+# Lint + tests on every push to every branch (runs on GitHub's Linux runners).
+# Each push is tested at its newest commit; runs are never cancelled, so every
+# pushed commit that ends up on a branch gets a result.
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash -el {0} # login shell so the micromamba env is active
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Create the ps1 env from environment.yml (cached)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: environment.yml
+          cache-environment: true
+
+      - name: Lint
+        run: ruff check linkopt tests score.py
+
+      - name: Tests
+        run: pytest

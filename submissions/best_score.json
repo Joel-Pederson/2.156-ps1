@@ -1,0 +1,15 @@
+{
+  "overall_score": 0.7833312529129904,
+  "score_breakdown": {
+    "Problem 1": 0.42931062305342493,
+    "Problem 2": 1.7511352221692105,
+    "Problem 3": 9.679149657661185
+  },
+  "normalized_score_breakdown": {
+    "Problem 1": 0.21465531152671247,
+    "Problem 2": 1.1674234814461404,
+    "Problem 3": 0.9679149657661185
+  },
+  "source": "starter notebook baseline (my_full_submission.npy), converted to strict format",
+  "date": "2026-09-26"
+}

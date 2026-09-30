@@ -1,0 +1,22 @@
+# Has the course repo changed since we copied LINKS/, the notebooks and the data?
+# Read-only: it downloads the course repo and compares it to tests/upstream_manifest.json.
+# Runs on every push (any branch). A separate check from CI, so "course repo changed"
+# never looks like "our code broke".
+name: Course repo updates
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download the course repo (read-only)
+        run: git clone --depth 1 https://github.com/decode-mit/2.156-CP1-2026 upstream
+
+      - name: Compare with tests/upstream_manifest.json
+        run: python3 tests/upstream_manifest.py check upstream

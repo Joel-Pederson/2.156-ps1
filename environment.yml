@@ -21,3 +21,4 @@ dependencies:
   - ipykernel
   - nbdime
   - ruff
+  - pytest
