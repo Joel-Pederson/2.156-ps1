@@ -105,11 +105,17 @@ setting name.
 One GA run happens per combination of `targets` × `n_joints` × `seeds`: `full` is
 3 × 3 × 5 = 45 runs. Each setting has a one-line explanation in `linkopt/config.py`.
 
+`n_start`, `pop_size`, `n_gen`, `mutation_prob` and `grad_steps` can also be **swept**
+(several values in one run, see `--sweep` below). `targets`, `n_joints` and `seeds` are
+already lists, so every value listed is run. `step_sizes` isn't swept, because each job
+already tries every step size and logs which one won.
+
 ### Running experiments
 
-`run.py` runs one **job** per kangaroo x mechanism size x seed: the GA, then gradient
-refinement of its designs. Jobs run in parallel; each is saved the moment it finishes; at the
-end everything is pooled into `submissions/best.npy` if the grader's score improves.
+`run.py` runs one **job** per kangaroo x mechanism size x seed (x each swept value): the
+GA, then gradient refinement of its designs. Jobs run in parallel; each is saved the moment
+it finishes; at the end everything is pooled into `submissions/best.npy` if the grader's
+score improves.
 
 ```bash
 conda activate ps1
@@ -117,6 +123,7 @@ python run.py --preset smoke                      # does it work? (~1 min)
 python run.py --preset quick --dry-run            # list the jobs + a rough time; runs nothing
 python run.py --preset quick --seeds 0-49         # 50 replicates (seed ranges: 0-49, or 0 1 2)
 python run.py --preset full --n-joints 10 12      # override any setting (see the table above)
+python run.py --preset quick --seeds 0-4 --sweep mutation_prob=none,0.3,0.7   # a DOE
 caffeinate -i python run.py --preset full         # long runs: keeps the Mac awake
 python run.py --resume runs/20261001-221500       # finish a stopped run (only the missing jobs)
 ```
@@ -124,10 +131,14 @@ python run.py --resume runs/20261001-221500       # finish a stopped run (only t
 | Option | What it does |
 |---|---|
 | `--dry-run` | Lists the jobs and a rough time estimate; runs nothing |
+| `--sweep NAME=V1,V2,...` | Runs every value of a setting (repeatable: every combination of all swept settings, for every kangaroo, size and seed). Every combination is checked before anything runs |
 | `--workers N` | Parallel processes (`0` = run in this process, so the debugger can step in) |
-| `--refine-best` | Also refine the designs already in `best.npy` (no GA), as extra jobs |
+| `--refine-best` | Also refine the designs already in `best.npy` (no GA), as extra jobs (not swept) |
 | `--no-update-best` | Don't touch `best.npy` (add the run later with `python merge.py runs/<run>/submission.npy`) |
-| `--resume RUN_DIR` | Run only the jobs a stopped run didn't finish, with its saved settings |
+| `--resume RUN_DIR` | Run only the jobs a stopped run didn't finish, with its saved settings (and sweep) |
+
+Jobs run seeds first: all of seed 0 (every kangaroo, size and swept value), then seed 1, and
+so on. So a run stopped halfway still has complete replicates, and a balanced comparison.
 
 While it runs you'll see one line per finished job and a progress bar with the time remaining.
 **Ctrl+C once** stops cleanly: finished jobs are kept and pooled, and `--resume` finishes the
@@ -137,11 +148,41 @@ Each run gets its own folder, `runs/<date-time>/` (git-ignored):
 
 | File | Contents |
 |---|---|
-| `config.json` | Every setting, the exact command, the git commit of the code |
+| `config.json` | Every setting (and the sweep), the exact command, the git commit of the code |
 | `jobs/` | Each job's designs, saved as it finishes |
-| `jobs.csv` | One row per job: kangaroo, size, seed, hypervolume before/after refining, time |
+| `jobs.csv` | One row per job, the same columns as `experiments_jobs.csv` below |
 | `submission.npy`, `scores.json` | This run's designs alone, scored by the grader |
 | `summary.txt` | The summary printed at the end (this run's score, and whether `best.npy` improved) |
+
+### Experiment logs (the DOE record)
+
+Every run also adds rows to two CSV files at the repo root. They're **committed**, so
+everyone's runs end up in one table for the report:
+
+| File | One row per | Columns |
+|---|---|---|
+| `experiments_jobs.csv` | finished job | run, time, git commit; kangaroo, size, seed and **every setting the job ran with**; designs; `hv_ga` / `hv_refined` (this job's own hypervolume before/after refining); `hv_refined_norm`; `step_size_wins`; GA / refinement / total seconds; error |
+| `experiments_log.csv` | `run.py` invocation (a `--resume` adds another row) | run, start/end, git commit, machine, command, sweep, resumed/stopped, jobs planned/done/failed, seconds, this run's own score (+ each kangaroo's hypervolume), `best.npy` before -> after |
+
+- `hv_refined_norm` is `hv_refined` divided by the kangaroo's score normalizer (2.0, 1.5,
+  10.0), the same division the grader does (`LINKS/CP/__init__.py`). It shows what the job
+  would score on its own kangaroo. Compare settings *within* a kangaroo: the normalizer
+  doesn't make the kangaroos equally hard. It's the job's standalone score, not what it
+  added to `best.npy`, because pooled jobs overlap.
+- `step_size_wins` (e.g. `0.0004:12 0.0001:5 3e-05:0`): how many of the job's designs each
+  refinement step size improved most. Designs that no size improved aren't counted.
+- **For DOE comparisons, use the rows with `kind` = `ga` and an empty `error`.**
+  - A `refine_best` row's hypervolumes are `best.npy`'s designs before and after refining
+    them, a whole kangaroo's best, not one GA run's.
+  - A crashed job's row has its results left empty (not 0) and says why in `error`. After
+    `--resume`, the same job also gets a normal row.
+- The first job on each worker also includes JAX's one-time compile (a few seconds) in its
+  seconds. So does the first job at each new population size. Drop those rows when
+  calibrating times.
+- A job's row is added the moment it finishes, so a stopped run keeps its rows. A second
+  Ctrl+C skips the run's row in `experiments_log.csv`; `--resume` adds one.
+- Tests never write these files (they use a sandbox via the hidden `--log-dir` flag, and a
+  guard in `tests/conftest.py` fails the tests if the real files change).
 
 **Submitting:** upload `submissions/best.npy` to the leaderboard. Check it first with
 `python score.py --strict submissions/best.npy`.
@@ -157,7 +198,9 @@ linkopt/          our framework
   refine.py         fine-tunes the GA's designs with gradients (joint positions only)
   archive.py        pools designs into the best submission; keeps best.npy improving
   pipeline.py       runs many jobs (GA -> refine) in parallel, saves each, pools the run
+  experiments.py    the experiment logs (experiments_jobs.csv / experiments_log.csv)
 run.py            the command for real runs (see "Running experiments")
+experiments_*.csv the committed DOE logs: one row per job / per run (see "Experiment logs")
 score.py          check and score any submission file
 merge.py          pool submission files (teammates', saved runs) into best.npy if better
 explore.ipynb     hands-on tour of the framework (one kangaroo)
@@ -202,6 +245,10 @@ python merge.py --dry-run fatak.npy   # what would happen? (changes nothing)
 python merge.py fatak.npy leif.npy    # pool with best.npy; saved only if the score improves
 ```
 
+- After a run, commit `submissions/best.npy`, `submissions/best_score.json` and both
+  `experiments_*.csv` logs together, then push.
+- The logs only ever get rows added, and `.gitattributes` merges them with git's `union`
+  driver. If two of you both add rows, git keeps both sides' rows without a conflict.
 - Each replacement backs up the previous `best.npy` to `runs/best_backups/` (on that computer).
 - **If git reports a conflict on `best.npy`** (two of you both improved it), don't pick one side:
   save the other version to a file (e.g. `git show origin/main:submissions/best.npy > theirs.npy`),
@@ -268,6 +315,11 @@ pytest                  # everything, including end-to-end runs (minutes)
 - `submissions/best.npy` never scores below `submissions/best_score.json`
   (`tests/test_best_submission.py`). Only replace it with a better submission, and update the
   JSON in the same commit.
+- Runs (`tests/test_pipeline.py`): every kangaroo × size × seed (× swept value) job is made
+  and saved, bad settings or sweep values stop the run before anything starts, each job runs
+  with its own swept values, `--resume` (sweeps included) runs only the missing jobs, and
+  both experiment logs get the right rows. No test ever writes the real `best.npy`,
+  `best_score.json` or experiment logs (`tests/conftest.py` fails the session if one does).
 - The grader (`LINKS/CP/__init__.py`) and `kangaroo_target_curves.npy` are byte-identical to the
   course's versions (fingerprints in `tests/upstream_manifest.json`), so local scores match
   the leaderboard's.

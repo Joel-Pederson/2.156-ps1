@@ -70,6 +70,10 @@ class Config:
             )
         if not self.seeds:
             raise ValueError("seeds must not be empty")
+        for name in ("targets", "n_joints", "seeds"):  # a repeat would run jobs twice
+            values = getattr(self, name)
+            if len(set(values)) != len(values):
+                raise ValueError(f"{name} lists a value twice: {values}")
         for name in ("n_start", "pop_size", "n_gen"):
             if getattr(self, name) < 1:
                 raise ValueError(

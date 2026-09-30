@@ -1,0 +1,1 @@
+run_id,finished,git_commit,job_id,kind,kangaroo,n_joints,seed,n_start,pop_size,n_gen,mutation_prob,grad_steps,step_sizes,designs,hv_ga,hv_refined,hv_refined_norm,step_size_wins,seconds_ga,seconds_refine,seconds,error

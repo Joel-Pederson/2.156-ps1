@@ -2,3 +2,6 @@
 *.ipynb	diff=jupyternotebook
 
 *.ipynb	merge=jupyternotebook
+
+# Experiment logs only ever get rows added: on a merge, keep both sides' rows.
+experiments_*.csv	merge=union
