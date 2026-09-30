@@ -117,7 +117,9 @@ linkopt/          our framework
   problem.py        the GA's view of a mechanism + fast batched scoring
   ga.py             random starting mechanisms + the GA (NSGA-II) for one kangaroo
   refine.py         fine-tunes the GA's designs with gradients (joint positions only)
+  archive.py        pools designs into the best submission; keeps best.npy improving
 score.py          check and score any submission file
+merge.py          pool submission files (teammates', saved runs) into best.npy if better
 explore.ipynb     hands-on tour of the framework (one kangaroo)
 submissions/      best.npy (current best) + best_score.json; all *.npy here are checked by CI
 tests/            pytest suite (see "Tests and CI")
@@ -149,6 +151,26 @@ Notebooks merge badly. To avoid three-way conflicts on cell IDs and outputs:
   ```
 - Notebooks are committed **with outputs** — the submission needs them.
 
+### Protecting `submissions/best.npy`
+
+`best.npy` is the team's best submission, built up over many runs. Only change it through
+`merge.py` (or `run.py`, coming), which pool new designs **with** the current best and replace
+it only if the grader's score goes up, so it can never get worse:
+
+```bash
+python merge.py --dry-run fatak.npy   # what would happen? (changes nothing)
+python merge.py fatak.npy leif.npy    # pool with best.npy; saved only if the score improves
+```
+
+- Each replacement backs up the previous `best.npy` to `runs/best_backups/` (on that computer).
+- **If git reports a conflict on `best.npy`** (two of you both improved it), don't pick one side:
+  save the other version to a file (e.g. `git show origin/main:submissions/best.npy > theirs.npy`),
+  keep yours, and run `python merge.py theirs.npy`. The pooled result is at least as good as both.
+- `python merge.py --fresh ...` replaces the best with only the given files. It asks you to type
+  `RESET`, and is only for deliberate restarts (e.g. if the course changes the grader).
+- Don't copy files over `best.npy` by hand: CI fails if it scores below `best_score.json` or
+  breaks a submission rule.
+
 ## Tests and CI
 
 `pytest` is in `environment.yml`. If your env predates that, update it once:
@@ -158,7 +180,7 @@ Notebooks merge badly. To avoid three-way conflicts on cell IDs and outputs:
 
 ```bash
 conda activate ps1
-ruff check linkopt tests score.py
+ruff check linkopt tests score.py merge.py
 pytest -m "not slow"    # seconds: notebook requirements, format, best-submission guard
 pytest                  # everything, including end-to-end runs (minutes)
 ```
@@ -200,6 +222,9 @@ pytest                  # everything, including end-to-end runs (minutes)
 - Our refinement loop is the advanced notebook's gradient loop (identical positions, bit for bit,
   `tests/test_refine.py`), and every refined design stays inside the limits and is never worse
   in distance than the GA design it started from.
+- Pooling (`tests/test_archive.py`) keeps exactly the hypervolume of the valid designs when under
+  1000, trims to 1000 within 0.1% of the best possible subset (checked by brute force), drops
+  broken, duplicate, dominated and outside-the-limits designs, and never lowers `best.npy`.
 - `submissions/best.npy` never scores below `submissions/best_score.json`
   (`tests/test_best_submission.py`). Only replace it with a better submission, and update the
   JSON in the same commit.
@@ -209,3 +234,7 @@ pytest                  # everything, including end-to-end runs (minutes)
 
 Check any submission file by hand with `python score.py <file.npy>` (add `--strict` for our
 exact format).
+
+**Note:** This codebase was developed with the assistance of Claude in accordance with MIT's Unrestricted GenAI Use policy, as described in MIT's guidance on acceptable AI use policies (https://tll.mit.edu/teaching-resources/course-design/ai-in-teaching-learni
+ng/acceptable-ai-use-policies/). However the final deliverables we
+submit, including reflections, reports, demos, projects, and challenge problem submissions, are primarily our own work and represent our own understanding.
