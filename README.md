@@ -168,6 +168,34 @@ Each run gets its own folder, `runs/<date-time>/` (git-ignored):
 | `submission.npy`, `scores.json` | This run's designs alone, scored by the grader |
 | `summary.txt` | The summary printed at the end (this run's score, and whether `best.npy` improved) |
 
+### How one job flows through the code
+
+From the command you type to `submissions/best.npy` (GitHub draws this as a flowchart):
+
+```mermaid
+flowchart TD
+    A["run.py: your flags → Config (config.py)"] --> B["pipeline.make_jobs: kangaroo × size × seed (× sweep)"]
+    B --> C["pipeline.run_jobs: 3 worker processes"]
+    C --> D["pipeline.run_job: one job"]
+    D --> E["ga.run_ga: random starting mechanisms → NSGA-II (problem.py scores them)"]
+    E --> F["refine.refine: gradient steps on joint positions"]
+    F --> G["pipeline.save_job: jobs/job-id.npy + jobs.csv; run.py logs experiments_jobs.csv"]
+    G --> H["pipeline.pool_run: after all jobs"]
+    H --> I["archive.select: drop broken / outside limits / duplicates / dominated; trim to 1000"]
+    I --> J["archive.update_best: pool with best.npy; replace only if the score rises"]
+    J --> K["submission.save: validate → save → the grader's score"]
+```
+
+| Step | Where | What happens |
+|---|---|---|
+| 1. Settings | `run.py` `main`, `config.py` `preset` | Your flags on top of a preset (`smoke` / `quick` / `full`) give one `Config`; bad values are refused before anything runs |
+| 2. Jobs | `pipeline.make_jobs` | Every kangaroo x size x seed (x swept value) becomes a `Job`, seeds first |
+| 3. GA | `ga.run_ga`, `problem.MechanismProblem` | `MechanismRandomizer` makes `n_start` random mechanisms that move; NSGA-II evolves them for `n_gen` generations; `problem.py` turns mechanisms into the GA's variables and back (`from_mech` / `to_mech`) and scores whole generations at once (`evaluate`) |
+| 4. Refinement | `refine.refine` | Each GA design walks downhill in distance (joint positions only), once per step size, staying inside the limits; it keeps its best position |
+| 5. Save + log | `pipeline.run_job`, `save_job`; `run.py` | The job keeps both versions of each design, is saved to `jobs/<job id>.npy` the moment it finishes, and gets a row in `jobs.csv` and `experiments_jobs.csv` |
+| 6. Pool | `pipeline.pool_run`, `archive.select` | All the run's designs per kangaroo: drop broken entries, designs outside the limits, duplicates and dominated designs; trim to 1000 by smallest hypervolume contribution |
+| 7. Best | `archive.update_best`, `submission.save` | Pool with the current `best.npy`; replace it only if the grader's score rises (locked, backed up, written atomically) |
+
 ### Experiment logs (the DOE record)
 
 Every run also adds rows to two CSV files at the repo root. They're **committed**, so
