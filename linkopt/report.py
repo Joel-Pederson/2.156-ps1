@@ -412,8 +412,8 @@ def plot_ga_vs_refined(rows, factor):
         for lvl in sorted({r[factor] for r in sub}, key=_sort_key):
             pts = [(r["hv_ga"], r["hv_refined"]) for r in sub if r[factor] == lvl]
             ax.scatter(*zip(*pts), s=14, label=_level_label(factor, lvl))
-        ax.set_xlabel("Before Refining (GA Result)")
-        ax.set_ylabel("After Refining (GA + Gradient)")
+        ax.set_xlabel("One Job's Hypervolume before Refining (GA Result)")
+        ax.set_ylabel("One Job's Hypervolume after Refining (GA + Gradient)")
         ax.set_title(KANGAROOS[k - 1])
         ax.legend(fontsize=8)
         _style(ax)

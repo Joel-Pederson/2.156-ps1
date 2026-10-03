@@ -7,6 +7,30 @@ size 7" onward. The pipeline:
     2. run_ga                  NSGA-II evolves them toward the kangaroo
     3. GAResult                the best designs it found, ready to submit
 
+At the detail level, run_ga does the following:
+    Start: n_start random mechanisms that move become generation 1 (pop_size designs).
+    Then, every generation (n_gen times):
+    1. Pick parents at random
+    2. Crossover: mix two parents' variables to make each child
+    3. Mutate: nudge the children a bit (or flip a yes/no switch)
+    4. Score the children: how well they match the kangaroo and how much material they use
+    5. Elitist survival: pool parents + children (2 x pop_size designs) and fill
+       pop_size seats.
+       a. Rank: feasible designs always come first (infeasible ones after them, least
+          outside the limits first). Non-dominated sorting peels the feasible designs
+          into fronts like an onion: front 1 = nothing beats them on both distance and
+          material; set it aside, and front 2 = nothing left beats them; and so on.
+       b. Fill the seats one whole front at a time: front 1, then front 2, ...
+          Dominated designs survive when front 1 doesn't fill the seats; they give
+          crossover varied material to mix.
+       c. The first front that doesn't fit gets only the seats left, for its most
+          spread-out designs (largest crowding distance; both ends of the front always
+          stay). If front 1 alone has more than pop_size designs, it is the one trimmed.
+       Parents compete with their children, so a design on the front only loses its
+       seat to better ones: the GA's score (practically) never goes down.
+    Outcome: after the last generation, the feasible designs on front 1 are the job's
+    designs; the rest of the population is discarded.
+
 Two differences from the notebook: mutation_prob actually sets the mutation rate
 (the notebook's setting is silently ignored), and the GA history isn't saved.
 """
