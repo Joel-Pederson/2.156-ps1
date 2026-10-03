@@ -182,6 +182,19 @@ def test_nothing_new_changes_nothing(best):
     assert not result.improved and _bytes(best) == before
 
 
+def test_a_score_recorded_elsewhere_is_not_an_improvement(best):
+    """CI on 2026-10-03: Linux scored the Mac's best.npy 3e-5 higher than the Mac had
+    recorded, so pooling nothing at all counted as an improvement. Only scores made
+    on the same computer are compared."""
+    record_path = best.with_name("best_score.json")
+    record = json.loads(record_path.read_text())
+    record["overall_score"] *= 1 - 1e-4  # as if another computer had scored it lower
+    record_path.write_text(json.dumps(record))
+    before = _bytes(best)
+    result = update_best({}, "test", best_path=best)
+    assert not result.improved and _bytes(best) == before
+
+
 def test_garbage_cannot_make_the_best_worse(best, k3_designs):
     before = _bytes(best)
     garbage = {
