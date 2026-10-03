@@ -294,7 +294,16 @@ def main(argv=None) -> int:
 
     # 4. Run, with a progress bar and one line per finished job. Each finished job
     #    is also added to experiments_jobs.csv straight away.
-    bar = tqdm(total=len(todo), unit="job", desc="Jobs")
+    # The time left is estimated from the jobs finished so far ("?" until the first).
+    bar = tqdm(
+        total=len(todo),
+        unit="job",
+        desc="Jobs",
+        bar_format=(
+            "{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} "
+            "[{elapsed} elapsed, ~{remaining} left, {rate_fmt}]"
+        ),
+    )
     failed = []
 
     def on_result(result, done, total):

@@ -1,15 +1,32 @@
 {
-  "overall_score": 0.7833312529129904,
+  "overall_score": 2.446106026660812,
   "score_breakdown": {
-    "Problem 1": 0.42931062305342493,
-    "Problem 2": 1.7511352221692105,
-    "Problem 3": 9.679149657661185
+    "Problem 1": 3.7294114679653134,
+    "Problem 2": 5.526832178054153,
+    "Problem 3": 17.890575606303443
   },
   "normalized_score_breakdown": {
-    "Problem 1": 0.21465531152671247,
-    "Problem 2": 1.1674234814461404,
-    "Problem 3": 0.9679149657661185
+    "Problem 1": 1.8647057339826567,
+    "Problem 2": 3.6845547853694356,
+    "Problem 3": 1.7890575606303443
   },
-  "source": "starter notebook baseline (my_full_submission.npy), converted to strict format",
-  "date": "2026-09-26"
+  "source": "run.py 20261002-233526",
+  "date": "2026-10-03 02:46",
+  "history": [
+    {
+      "date": "2026-09-26",
+      "source": "starter notebook baseline (my_full_submission.npy), converted to strict format",
+      "overall_score": 0.7833312529129904
+    },
+    {
+      "date": "2026-10-02 23:05",
+      "source": "run.py 20261002-230457",
+      "overall_score": 0.8397472488457564
+    },
+    {
+      "date": "2026-10-03 02:46",
+      "source": "run.py 20261002-233526",
+      "overall_score": 2.446106026660812
+    }
+  ]
 }

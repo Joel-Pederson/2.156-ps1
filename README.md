@@ -210,7 +210,7 @@ LINKS/            course library, including the grader (LINKS/CP) - don't edit
 runs/             raw output of each run (git-ignored)
 ```
 
-## Running on Colab instead (Not Reccomended)
+## Running on Colab instead (Not Recommended)
 
 Open a notebook straight from GitHub:
 `https://colab.research.google.com/github/Joel-Pederson/2.156-ps1/blob/main/<notebook>.ipynb`
