@@ -15,6 +15,8 @@ Used by results.ipynb. The main pieces:
     seeds_curve        pooled hypervolume vs. number of seeds (when do more
                        replicates stop paying?)
     provenance         which jobs the designs in best.npy came from
+    plot_convergence   convergence.py's curves: one job's score vs. generations
+                       and vs. refinement steps
 """
 
 import csv
@@ -529,6 +531,73 @@ def plot_provenance(prov):
     ax.set_title("Where the Designs in Our Submission Came From")
     ax.legend(fontsize=8)
     _style(ax, grid_axis="y")
+    fig.tight_layout()
+    return fig
+
+
+# --- Convergence (convergence.py) ---------------------------------------------------
+
+
+def read_convergence(path) -> list[dict]:
+    """A convergence run's curves.csv (or its folder), numbers as numbers."""
+    path = Path(path)
+    if path.is_dir():
+        path = path / "curves.csv"
+    with open(path) as f:
+        return [
+            {
+                "kangaroo": int(r["kangaroo"]),
+                "n_joints": int(r["n_joints"]),
+                "seed": int(r["seed"]),
+                "stage": r["stage"],
+                "x": int(r["x"]),
+                "hypervolume": float(r["hypervolume"]),
+                "seconds": float(r["seconds"]),
+            }
+            for r in csv.DictReader(f)
+        ]
+
+
+def plot_convergence(rows, snapshot_gen, current_steps):
+    """Per kangaroo, one job's score as it runs longer. Top: the GA, after every
+    generation. Bottom: refinement of the generation-`snapshot_gen` designs, by
+    step count. One line per job (size, seed); dashed = the current setting."""
+    kangaroos = sorted({r["kangaroo"] for r in rows})
+    fig, axs = plt.subplots(
+        2, len(kangaroos), figsize=(5 * len(kangaroos), 8.5), squeeze=False
+    )
+    jobs = sorted({(r["n_joints"], r["seed"]) for r in rows})
+    colors = dict(zip(jobs, plt.cm.tab10.colors * 10))
+    for col, k in enumerate(kangaroos):
+        ga_ax, ref_ax = axs[0, col], axs[1, col]
+        for n, s in jobs:
+            for ax, stage, marker in ((ga_ax, "ga", None), (ref_ax, "refine", "o")):
+                pts = sorted(
+                    (r["x"], r["hypervolume"])
+                    for r in rows
+                    if (r["kangaroo"], r["n_joints"], r["seed"], r["stage"])
+                    == (k, n, s, stage)
+                )
+                if pts:
+                    ax.plot(
+                        *zip(*pts),
+                        marker=marker,
+                        markersize=4,
+                        color=colors[(n, s)],
+                        label=f"{n} Joints, Seed {s}",
+                    )
+        for ax, now in ((ga_ax, snapshot_gen), (ref_ax, current_steps)):
+            ax.axvline(
+                now, color="grey", ls="--", lw=1, label=f"Current Setting ({now})"
+            )
+            ax.legend(fontsize=8)
+            _style(ax)
+        ga_ax.set_title(f"{KANGAROOS[k - 1]}: GA")
+        ga_ax.set_xlabel("Generation")
+        ga_ax.set_ylabel("Hypervolume of One Job (GA Result)")
+        ref_ax.set_title(f"Refining the Generation-{snapshot_gen} Designs")
+        ref_ax.set_xlabel("Refinement Steps")
+        ref_ax.set_ylabel("Hypervolume after Refining (GA + Gradient)")
     fig.tight_layout()
     return fig
 

@@ -20,10 +20,8 @@ from linkopt.archive import (
     trim,
     update_best,
 )
-from linkopt.config import preset
 from linkopt.ga import target_curve
 from linkopt.problem import evaluate
-from linkopt.refine import refine
 from linkopt.submission import load, validate
 from LINKS.CP import REFERENCE_POINTS
 
@@ -200,17 +198,24 @@ def test_garbage_cannot_make_the_best_worse(best, k3_designs):
 
 @pytest.fixture(scope="module")
 def improving_designs(_best_submission):
-    """Refined versions of the baseline's Kangaroo 2 designs: a genuine improvement."""
-    r = refine(
-        _best_submission["Problem 2"],
-        K2,
-        preset("quick", grad_steps=10, step_sizes=(4e-4,)),
-    )
-    assert r.moved()
-    return {K2: r.moved()}
+    """Every other Kangaroo 2 design of the committed best. `weakened_best` lacks
+    them, so adding them back is a clear improvement however good best.npy gets.
+    (Refining best's own designs stopped being one once they were refined.)"""
+    return {K2: list(_best_submission["Problem 2"][::2])}
 
 
-def test_a_real_improvement_is_saved_safely(best, improving_designs):
+@pytest.fixture
+def weakened_best(best, _best_submission):
+    """The sandbox best without the improving designs, written the normal way."""
+    keep = {t: list(_best_submission[f"Problem {t + 1}"]) for t in range(3)}
+    keep[K2] = keep[K2][1::2]
+    assert update_best(keep, "weakened for a test", best_path=best, fresh=True).improved
+    return best
+
+
+def test_a_real_improvement_is_saved_safely(weakened_best, improving_designs):
+    best = weakened_best
+    previous = best.read_bytes()
     before = json.loads(best.with_name("best_score.json").read_text())
     entries_before = (
         len(before.get("history", [])) or 1
@@ -219,10 +224,7 @@ def test_a_real_improvement_is_saved_safely(best, improving_designs):
     assert result.improved and result.new_score > result.old_score
 
     # the previous best was backed up, byte for byte
-    assert (
-        result.backup is not None
-        and result.backup.read_bytes() == BEST_PATH.read_bytes()
-    )
+    assert result.backup is not None and result.backup.read_bytes() == previous
 
     # the new best meets every submission requirement, re-checked independently
     new = load(best)
@@ -241,7 +243,8 @@ def test_a_real_improvement_is_saved_safely(best, improving_designs):
     assert len(record["history"]) == entries_before + 1
 
 
-def test_dry_run_writes_nothing(best, improving_designs):
+def test_dry_run_writes_nothing(weakened_best, improving_designs):
+    best = weakened_best
     before = _bytes(best)
     result = update_best(improving_designs, "dry", best_path=best, write=False)
     assert result.new_score > result.old_score  # it would have improved...
