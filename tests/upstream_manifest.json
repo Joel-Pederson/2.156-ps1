@@ -1,6 +1,6 @@
 {
   "upstream": "https://github.com/decode-mit/2.156-CP1-2026",
-  "upstream_commit": "0c4036bcc2c1626d0d16806c639e9f0f9b12aca3",
+  "upstream_commit": "485590cbc37713511ca020b500b8089e6a7316d3",
   "files": {
     "2_155_Fall_26_CP1_Starter_Notebook.ipynb": "d133671e112aa6b19042271885fda6b21e2289f2dd30a4f32ac85f973e6392c2",
     "Fall_26_CP1_Advanced_Starter_Notebook.ipynb": "a6389e29338f22c2f7440b629e03e620976738d4e3fa1873e373e523b5978ddf",
@@ -11,7 +11,7 @@
     "LINKS/Kinematics/_Solver.py": "dc8e52bf005f41a51297cd32fcf1454ce77cef3afe00e430da28fcaff26303d0",
     "LINKS/Kinematics/__init__.py": "2449c942e0e28c3d0da9123f403d5570cfeb85bc99fda2fa6047a821681af41b",
     "LINKS/Kinematics/_kin.py": "8a0a7149f67625f8c6ec8914b6112ecdc9ef9813789782cef4f452a3603c1be3",
-    "LINKS/Kinematics/_solvers/_JAX.py": "264c058719bc09da7cea3c4deb53de8ad01b74bd8003397ffdf9d7fe898d5b16",
+    "LINKS/Kinematics/_solvers/_JAX.py": "b962aed9f730955ac7366a9655d27d02fd8dc25e2ed3ef440f826af695c35168",
     "LINKS/Kinematics/_solvers/__init__.py": "d71fb34aad8ef6f573e99e128d08ae28c67e6895e31589804ba7c39df4e14238",
     "LINKS/Optimization/_DifferentiableTools.py": "da22a8e0e28d59d05eca294970dcfd555ca41a70a08fa24a0db53becd1eeeade",
     "LINKS/Optimization/_MechanismRandomizer.py": "b4a79167c28ddf2002eea3bf51b1f7bbf8710a22eb38af6c279bdcd0a22640b0",

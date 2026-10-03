@@ -211,6 +211,10 @@ def improving_designs(_best_submission):
 
 
 def test_a_real_improvement_is_saved_safely(best, improving_designs):
+    before = json.loads(best.with_name("best_score.json").read_text())
+    entries_before = (
+        len(before.get("history", [])) or 1
+    )  # old records: 1 implicit entry
     result = update_best(improving_designs, "test improvement", best_path=best)
     assert result.improved and result.new_score > result.old_score
 
@@ -233,7 +237,8 @@ def test_a_real_improvement_is_saved_safely(best, improving_designs):
     record = json.loads(best.with_name("best_score.json").read_text())
     assert record["overall_score"] == pytest.approx(result.new_score)
     assert [h["source"] for h in record["history"]][-1] == "test improvement"
-    assert len(record["history"]) == 2  # the baseline + this update
+    # exactly one new entry, whatever the real best's history was (it grows with runs)
+    assert len(record["history"]) == entries_before + 1
 
 
 def test_dry_run_writes_nothing(best, improving_designs):
