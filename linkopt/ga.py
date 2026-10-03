@@ -105,11 +105,15 @@ class GAResult:
     start_F: np.ndarray  # [distance, material] of the starting mechanisms
 
 
-def run_ga(target, n_joints, seed, cfg: Config, verbose=False):
+def run_ga(target, n_joints, seed, cfg: Config, verbose=False, callback=None):
     """Run NSGA-II on kangaroo `target` using `n_joints`-joint mechanisms.
 
     Returns a GAResult. Its designs list is empty if the GA never got inside
     the kangaroo's distance and material limits.
+
+    callback (optional): pymoo calls callback(algorithm) after every generation;
+    convergence.py uses it to record the score as the GA goes. It only watches:
+    the GA runs exactly the same with or without it.
     """
     start_time = time.perf_counter()
 
@@ -158,8 +162,12 @@ def run_ga(target, n_joints, seed, cfg: Config, verbose=False):
     #    - ("n_gen", cfg.n_gen):   when to stop: after n_gen generations (30 in "quick")
     #    - seed:                   makes the GA's own random choices repeatable
     #    - verbose:                True prints a progress table each generation
+    #    - callback:               only passed if given (pymoo can't take None here)
     #    It returns res, pymoo's result object (res.opt is used below).
-    res = minimize(problem, algorithm, ("n_gen", cfg.n_gen), seed=seed, verbose=verbose)
+    watch = {"callback": callback} if callback else {}
+    res = minimize(
+        problem, algorithm, ("n_gen", cfg.n_gen), seed=seed, verbose=verbose, **watch
+    )
 
     # 5. Collect the best designs. res.opt holds the designs that are inside both
     #    limits and not beaten on both distance and material (None if there are none).

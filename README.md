@@ -43,6 +43,7 @@ before final submission. `LINKS` runs on JAX, pinned to CPU (`JAX_PLATFORMS=cpu`
 | Where | What it's for | How |
 |---|---|---|
 | `run.py` | The real runs: all 3 kangaroos in parallel, minutes to overnight | `python run.py --preset quick` in a terminal. Saves `runs/<timestamp>/`, logs the score, updates `submissions/best.npy` when it improves |
+| `convergence.py` | Mini test: how long should the GA and refinement run? Records one job's score after every generation and for several refinement step counts | `python convergence.py` (~45 min). Measurement only: never touches `best.npy` or the logs. Saves `runs/convergence-<timestamp>/` (curves.csv + convergence.png) |
 | `results.ipynb` | See what happened and why: the grader's score + the leaderboard sum, the trade-off staircases, the best mechanisms and their fits, DOE heatmap/box plots, refinement's effect, the seeds curve, and where `best.npy`'s designs came from | Pick a run in **Settings**, **Run All** (~40 s). Only reads; with `SAVE_FIGURES` it saves PNGs to `<run>/figures/` (git-ignored) |
 | `explore.ipynb` | Hands-on tour: run the GA on one kangaroo, score it, plot it, pool seeds | Open, select **Python (ps1)**, run top to bottom (~30 s). Saves only to `runs/explore/` |
 | Any notebook | Quick interactive experiments | `from linkopt.config import preset` / `from linkopt.problem import MechanismProblem, evaluate` |
@@ -128,6 +129,19 @@ caffeinate -i python run.py --preset full         # long runs: keeps the Mac awa
 python run.py --resume runs/20261001-221500       # finish a stopped run (only the missing jobs)
 ```
 
+**How long should a job run?** `convergence.py` answers that before you spend a night on a
+sweep. One long run contains every shorter run (same seed = same states), so a 600-generation
+GA, scored after every generation, shows what *any* `n_gen` up to 600 would give, and the
+designs at the snapshot generation (default: the preset's `n_gen`) are refined for several step
+counts. It ends by checking itself: it runs its first job once more the ordinary `run.py` way,
+and the scores must match its curves exactly.
+
+```bash
+python convergence.py --dry-run                   # 3 kangaroos x 5 joints x seeds 0-2, ~45 min
+python convergence.py                             # GA to 600 generations; 0-3000 refinement steps
+python convergence.py --n-joints 5 6 --seeds 0-4 --n-gen 400 --grad-steps 0 1000 5000
+```
+
 | Option | What it does |
 |---|---|
 | `--dry-run` | Lists the jobs and a rough time estimate; runs nothing |
@@ -201,6 +215,7 @@ linkopt/          our framework
   report.py         figures + tables for results.ipynb (reads only; scores from the grader)
   experiments.py    the experiment logs (experiments_jobs.csv / experiments_log.csv)
 run.py            the command for real runs (see "Running experiments")
+convergence.py    mini test: score vs. generations and vs. refinement steps (measures only)
 experiments_*.csv the committed DOE logs: one row per job / per run (see "Experiment logs")
 score.py          check and score any submission file
 merge.py          pool submission files (teammates', saved runs) into best.npy if better

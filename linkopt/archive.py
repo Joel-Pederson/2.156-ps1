@@ -35,6 +35,7 @@ from linkopt.ga import target_curve
 from linkopt.problem import LIMIT_MARGIN, evaluate, safe_limits
 from linkopt.submission import (
     MAX_PER_PROBLEM,
+    TARGET_CURVES_PATH,
     build_submission,
     fill_default_target_joints,
     load,
@@ -42,7 +43,7 @@ from linkopt.submission import (
     save,
     to_entry,
 )
-from LINKS.CP import N_PROBLEMS, REFERENCE_POINTS
+from LINKS.CP import N_PROBLEMS, REFERENCE_POINTS, evaluate_submission
 
 ROOT = Path(__file__).resolve().parent.parent
 BEST_PATH = ROOT / "submissions" / "best.npy"
@@ -242,7 +243,16 @@ def update_best(
     with _locked(runs_dir / ".best.lock"):
         current = load(best_path) if best_path.exists() else None
         record = json.loads(record_path.read_text()) if record_path.exists() else {}
-        old_score = float(record.get("overall_score", 0.0))
+        # The current best scored now, on this computer, not the recorded score: that
+        # may come from another computer (CI's Linux scores the same file ~3e-5
+        # differently than a Mac), and the difference would look like an improvement.
+        old_score = (
+            evaluate_submission(str(best_path), str(TARGET_CURVES_PATH))[
+                "Overall Score"
+            ]
+            if current is not None
+            else 0.0
+        )
 
         # Pool: the current best's designs (unless fresh) plus the new ones.
         selections = {}
