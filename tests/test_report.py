@@ -113,7 +113,7 @@ def test_every_figure_renders_and_saves(sandbox_run, tmp_path):
     scored = report.submission_scores(load(sandbox_run["best"]))
     designs, F = scored[2]
     figures = {
-        "tradeoff": report.plot_trade_off(F, 2, leader_hv=29.58659),
+        "tradeoff": report.plot_trade_off(F, 2),
         "design": report.plot_design(designs[report.pick_designs(F)["middle"]], 2),
         "front": report.plot_front(designs, F, 2, max_rows=3),
         "front_one": report.plot_front(designs[:1], F[:1], 2),  # a single design
