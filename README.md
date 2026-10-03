@@ -42,8 +42,8 @@ before final submission. `LINKS` runs on JAX, pinned to CPU (`JAX_PLATFORMS=cpu`
 
 | Where | What it's for | How |
 |---|---|---|
-| `run.py` *(coming)* | The real runs: all 3 kangaroos in parallel, minutes to overnight | `python run.py --preset quick` in a terminal. Saves `runs/<timestamp>/`, logs the score, updates `submissions/best.npy` when it improves |
-| `ps1_results.ipynb` *(coming)* | Visualize: scores, hypervolume plots, best mechanism per kangaroo vs. its target curve | Open, pick a run, **Run All**. It only loads saved results, so closing it never interrupts a run |
+| `run.py` | The real runs: all 3 kangaroos in parallel, minutes to overnight | `python run.py --preset quick` in a terminal. Saves `runs/<timestamp>/`, logs the score, updates `submissions/best.npy` when it improves |
+| `results.ipynb` | See what happened and why: the grader's score + the leaderboard sum, the trade-off staircases, the best mechanisms and their fits, DOE heatmap/box plots, refinement's effect, the seeds curve, and where `best.npy`'s designs came from | Pick a run in **Settings**, **Run All** (~40 s). Only reads; with `SAVE_FIGURES` it saves PNGs to `<run>/figures/` (git-ignored) |
 | `explore.ipynb` | Hands-on tour: run the GA on one kangaroo, score it, plot it, pool seeds | Open, select **Python (ps1)**, run top to bottom (~30 s). Saves only to `runs/explore/` |
 | Any notebook | Quick interactive experiments | `from linkopt.config import preset` / `from linkopt.problem import MechanismProblem, evaluate` |
 | Starter / advanced notebooks | The course's explanations and examples | Read only. To experiment, work in a copy: `tests/test_problem.py` compares our code against the advanced notebook's original class cell |
@@ -57,7 +57,7 @@ number of times without re-optimizing.
 1. Change an idea in `linkopt/`, or a setting (presets live in `linkopt/config.py`).
 2. Run it: `python run.py --preset smoke` to check it works (~1 min), then `--preset quick` or
    `full` for a real score.
-3. Look at the result in `ps1_results.ipynb`.
+3. Read the run's summary, then open `results.ipynb` to see what happened and why.
 4. If the score beat `submissions/best_score.json`, `best.npy` and the JSON are updated;
    commit both together.
 5. Push. CI checks the submission against every starter-notebook requirement.
@@ -77,7 +77,7 @@ cfg = preset("full", targets=(0,), n_joints=(6, 8))    # full run on Kangaroo 1 
 cfg = Config(pop_size=100, n_gen=40)                   # no preset: defaults for everything else
 ```
 
-From the terminal *(coming with `run.py`)*: the same settings as flags.
+From the terminal, the same settings as flags (see [Running experiments](#running-experiments)):
 
 ```bash
 python run.py --preset smoke                               # does it run? (~1 min)
@@ -105,6 +105,85 @@ setting name.
 One GA run happens per combination of `targets` × `n_joints` × `seeds`: `full` is
 3 × 3 × 5 = 45 runs. Each setting has a one-line explanation in `linkopt/config.py`.
 
+`n_start`, `pop_size`, `n_gen`, `mutation_prob` and `grad_steps` can also be **swept**
+(several values in one run, see `--sweep` below). `targets`, `n_joints` and `seeds` are
+already lists, so every value listed is run. `step_sizes` isn't swept, because each job
+already tries every step size and logs which one won.
+
+### Running experiments
+
+`run.py` runs one **job** per kangaroo x mechanism size x seed (x each swept value): the
+GA, then gradient refinement of its designs. Jobs run in parallel; each is saved the moment
+it finishes; at the end everything is pooled into `submissions/best.npy` if the grader's
+score improves.
+
+```bash
+conda activate ps1
+python run.py --preset smoke                      # does it work? (~1 min)
+python run.py --preset quick --dry-run            # list the jobs + a rough time; runs nothing
+python run.py --preset quick --seeds 0-49         # 50 replicates (seed ranges: 0-49, or 0 1 2)
+python run.py --preset full --n-joints 10 12      # override any setting (see the table above)
+python run.py --preset quick --seeds 0-4 --sweep mutation_prob=none,0.3,0.7   # a DOE
+caffeinate -i python run.py --preset full         # long runs: keeps the Mac awake
+python run.py --resume runs/20261001-221500       # finish a stopped run (only the missing jobs)
+```
+
+| Option | What it does |
+|---|---|
+| `--dry-run` | Lists the jobs and a rough time estimate; runs nothing |
+| `--sweep NAME=V1,V2,...` | Runs every value of a setting (repeatable: every combination of all swept settings, for every kangaroo, size and seed). Every combination is checked before anything runs |
+| `--workers N` | Parallel processes (`0` = run in this process, so the debugger can step in) |
+| `--refine-best` | Also refine the designs already in `best.npy` (no GA), as extra jobs (not swept) |
+| `--no-update-best` | Don't touch `best.npy` (add the run later with `python merge.py runs/<run>/submission.npy`) |
+| `--resume RUN_DIR` | Run only the jobs a stopped run didn't finish, with its saved settings (and sweep) |
+
+Jobs run seeds first: all of seed 0 (every kangaroo, size and swept value), then seed 1, and
+so on. So a run stopped halfway still has complete replicates, and a balanced comparison.
+
+While it runs you'll see one line per finished job and a progress bar with the time remaining.
+**Ctrl+C once** stops cleanly: finished jobs are kept and pooled, and `--resume` finishes the
+rest. Ctrl+C twice quits immediately (finished jobs are still saved).
+
+Each run gets its own folder, `runs/<date-time>/` (git-ignored):
+
+| File | Contents |
+|---|---|
+| `config.json` | Every setting (and the sweep), the exact command, the git commit of the code |
+| `jobs/` | Each job's designs, saved as it finishes |
+| `jobs.csv` | One row per job, the same columns as `experiments_jobs.csv` below |
+| `submission.npy`, `scores.json` | This run's designs alone, scored by the grader |
+| `summary.txt` | The summary printed at the end (this run's score, and whether `best.npy` improved) |
+
+### Experiment logs (the DOE record)
+
+Every run also adds rows to two CSV files at the repo root. They're **committed**, so
+everyone's runs end up in one table for the report:
+
+| File | One row per | Columns |
+|---|---|---|
+| `experiments_jobs.csv` | finished job | run, time, git commit; kangaroo, size, seed and **every setting the job ran with**; designs; `hv_ga` / `hv_refined` (this job's own hypervolume before/after refining); `hv_refined_norm`; `step_size_wins`; GA / refinement / total seconds; error |
+| `experiments_log.csv` | `run.py` invocation (a `--resume` adds another row) | run, start/end, git commit, machine, command, sweep, resumed/stopped, jobs planned/done/failed, seconds, this run's own score (+ each kangaroo's hypervolume), `best.npy` before -> after |
+
+- `hv_refined_norm` is `hv_refined` divided by the kangaroo's score normalizer (2.0, 1.5,
+  10.0), the same division the grader does (`LINKS/CP/__init__.py`). It shows what the job
+  would score on its own kangaroo. Compare settings *within* a kangaroo: the normalizer
+  doesn't make the kangaroos equally hard. It's the job's standalone score, not what it
+  added to `best.npy`, because pooled jobs overlap.
+- `step_size_wins` (e.g. `0.0004:12 0.0001:5 3e-05:0`): how many of the job's designs each
+  refinement step size improved most. Designs that no size improved aren't counted.
+- **For DOE comparisons, use the rows with `kind` = `ga` and an empty `error`.**
+  - A `refine_best` row's hypervolumes are `best.npy`'s designs before and after refining
+    them, a whole kangaroo's best, not one GA run's.
+  - A crashed job's row has its results left empty (not 0) and says why in `error`. After
+    `--resume`, the same job also gets a normal row.
+- The first job on each worker also includes JAX's one-time compile (a few seconds) in its
+  seconds. So does the first job at each new population size. Drop those rows when
+  calibrating times.
+- A job's row is added the moment it finishes, so a stopped run keeps its rows. A second
+  Ctrl+C skips the run's row in `experiments_log.csv`; `--resume` adds one.
+- Tests never write these files (they use a sandbox via the hidden `--log-dir` flag, and a
+  guard in `tests/conftest.py` fails the tests if the real files change).
+
 **Submitting:** upload `submissions/best.npy` to the leaderboard. Check it first with
 `python score.py --strict submissions/best.npy`.
 
@@ -117,15 +196,23 @@ linkopt/          our framework
   problem.py        the GA's view of a mechanism + fast batched scoring
   ga.py             random starting mechanisms + the GA (NSGA-II) for one kangaroo
   refine.py         fine-tunes the GA's designs with gradients (joint positions only)
+  archive.py        pools designs into the best submission; keeps best.npy improving
+  pipeline.py       runs many jobs (GA -> refine) in parallel, saves each, pools the run
+  report.py         figures + tables for results.ipynb (reads only; scores from the grader)
+  experiments.py    the experiment logs (experiments_jobs.csv / experiments_log.csv)
+run.py            the command for real runs (see "Running experiments")
+experiments_*.csv the committed DOE logs: one row per job / per run (see "Experiment logs")
 score.py          check and score any submission file
+merge.py          pool submission files (teammates', saved runs) into best.npy if better
 explore.ipynb     hands-on tour of the framework (one kangaroo)
+results.ipynb     figures for any run + the current best (for understanding and the report)
 submissions/      best.npy (current best) + best_score.json; all *.npy here are checked by CI
 tests/            pytest suite (see "Tests and CI")
 LINKS/            course library, including the grader (LINKS/CP) - don't edit
 runs/             raw output of each run (git-ignored)
 ```
 
-## Running on Colab instead (Not Reccomended)
+## Running on Colab instead (Not Recommended)
 
 Open a notebook straight from GitHub:
 `https://colab.research.google.com/github/Joel-Pederson/2.156-ps1/blob/main/<notebook>.ipynb`
@@ -149,6 +236,30 @@ Notebooks merge badly. To avoid three-way conflicts on cell IDs and outputs:
   ```
 - Notebooks are committed **with outputs** — the submission needs them.
 
+### Protecting `submissions/best.npy`
+
+`best.npy` is the team's best submission, built up over many runs. Only change it through
+`merge.py` or `run.py`, which pool new designs **with** the current best and replace
+it only if the grader's score goes up, so it can never get worse:
+
+```bash
+python merge.py --dry-run fatak.npy   # what would happen? (changes nothing)
+python merge.py fatak.npy leif.npy    # pool with best.npy; saved only if the score improves
+```
+
+- After a run, commit `submissions/best.npy`, `submissions/best_score.json` and both
+  `experiments_*.csv` logs together, then push.
+- The logs only ever get rows added, and `.gitattributes` merges them with git's `union`
+  driver. If two of you both add rows, git keeps both sides' rows without a conflict.
+- Each replacement backs up the previous `best.npy` to `runs/best_backups/` (on that computer).
+- **If git reports a conflict on `best.npy`** (two of you both improved it), don't pick one side:
+  save the other version to a file (e.g. `git show origin/main:submissions/best.npy > theirs.npy`),
+  keep yours, and run `python merge.py theirs.npy`. The pooled result is at least as good as both.
+- `python merge.py --fresh ...` replaces the best with only the given files. It asks you to type
+  `RESET`, and is only for deliberate restarts (e.g. if the course changes the grader).
+- Don't copy files over `best.npy` by hand: CI fails if it scores below `best_score.json` or
+  breaks a submission rule.
+
 ## Tests and CI
 
 `pytest` is in `environment.yml`. If your env predates that, update it once:
@@ -158,7 +269,7 @@ Notebooks merge badly. To avoid three-way conflicts on cell IDs and outputs:
 
 ```bash
 conda activate ps1
-ruff check linkopt tests score.py
+ruff check linkopt tests score.py merge.py run.py
 pytest -m "not slow"    # seconds: notebook requirements, format, best-submission guard
 pytest                  # everything, including end-to-end runs (minutes)
 ```
@@ -200,12 +311,24 @@ pytest                  # everything, including end-to-end runs (minutes)
 - Our refinement loop is the advanced notebook's gradient loop (identical positions, bit for bit,
   `tests/test_refine.py`), and every refined design stays inside the limits and is never worse
   in distance than the GA design it started from.
+- Pooling (`tests/test_archive.py`) keeps exactly the hypervolume of the valid designs when under
+  1000, trims to 1000 within 0.1% of the best possible subset (checked by brute force), drops
+  broken, duplicate, dominated and outside-the-limits designs, and never lowers `best.npy`.
 - `submissions/best.npy` never scores below `submissions/best_score.json`
   (`tests/test_best_submission.py`). Only replace it with a better submission, and update the
   JSON in the same commit.
+- Runs (`tests/test_pipeline.py`): every kangaroo × size × seed (× swept value) job is made
+  and saved, bad settings or sweep values stop the run before anything starts, each job runs
+  with its own swept values, `--resume` (sweeps included) runs only the missing jobs, and
+  both experiment logs get the right rows. No test ever writes the real `best.npy`,
+  `best_score.json` or experiment logs (`tests/conftest.py` fails the session if one does).
 - The grader (`LINKS/CP/__init__.py`) and `kangaroo_target_curves.npy` are byte-identical to the
   course's versions (fingerprints in `tests/upstream_manifest.json`), so local scores match
   the leaderboard's.
 
 Check any submission file by hand with `python score.py <file.npy>` (add `--strict` for our
 exact format).
+
+**Note:** This codebase was developed with the assistance of Claude in accordance with MIT's Unrestricted GenAI Use policy, as described in MIT's guidance on acceptable AI use policies (https://tll.mit.edu/teaching-resources/course-design/ai-in-teaching-learni
+ng/acceptable-ai-use-policies/). However the final deliverables we
+submit, including reflections, reports, demos, projects, and challenge problem submissions, are primarily our own work and represent our own understanding.

@@ -24,7 +24,7 @@ jobs:
           cache-environment: true
 
       - name: Lint
-        run: ruff check linkopt tests score.py
+        run: ruff check linkopt tests score.py merge.py run.py
 
       - name: Tests
         run: pytest

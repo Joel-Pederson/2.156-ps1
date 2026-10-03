@@ -2,3 +2,14 @@
 *.ipynb	diff=jupyternotebook
 
 *.ipynb	merge=jupyternotebook
+
+# Experiment logs only ever get rows added: on a merge, keep both sides' rows.
+experiments_*.csv	merge=union
+
+# GitHub's "Languages" bar (cosmetic only). It counts bytes, so notebooks full of
+# embedded plot images swamped it. Course-provided files are third-party
+# ("vendored"); our notebooks are for viewing results ("documentation").
+LINKS/**	linguist-vendored
+2_155_Fall_26_CP1_Starter_Notebook.ipynb	linguist-vendored
+Fall_26_CP1_Advanced_Starter_Notebook.ipynb	linguist-vendored
+*.ipynb	linguist-documentation

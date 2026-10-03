@@ -36,7 +36,8 @@ def solve_rev_vectorized_batch(As,x0s,node_types,thetas):
         x0k1 = x0s[:,k,1]
         x0k0 = x0s[:,k,0]
         
-        s = np.expand_dims(np.sign((x0i1-x0k1)*(x0i0-x0j0) - (x0i1-x0j1)*(x0i0-x0k0)),-1)
+        cross = (x0i1-x0k1)*(x0i0-x0j0) - (x0i1-x0j1)*(x0i0-x0k0)
+        s = np.expand_dims(np.where(cross >= 0, 1.0, -1.0), -1)
 
         phi = s * np.arccos(cosphis)
         

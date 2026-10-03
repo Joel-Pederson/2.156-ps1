@@ -1,0 +1,4 @@
+run_id,started,finished,git_commit,machine,command,sweep,resumed,stopped,jobs_planned,jobs_done,jobs_failed,seconds,run_score,hv_k1,hv_k2,hv_k3,best_before,best_after,improved
+20261002-230106,2026-10-02T23:01:06,2026-10-02T23:01:26,cf3e09b-dirty,"macOS-27.0-arm64-arm-64bit, Apple M1 Max",python run.py --preset smoke,,False,False,3,3,0,19.7,0.046967,0.0,0.0,1.408997,0.783331,0.783331,False
+20261002-230457,2026-10-02T23:04:57,2026-10-02T23:05:29,cf3e09b-dirty,"macOS-27.0-arm64-arm-64bit, Apple M1 Max",python run.py --preset quick,,False,False,3,3,0,32.4,0.414724,0.651185,0.140557,8.248757,0.783331,0.839747,True
+20261002-233526,2026-10-02T23:35:26,2026-10-03T02:46:02,cf3e09b-dirty,"macOS-27.0-arm64-arm-64bit, Apple M1 Max",python run.py --preset full --n-joints 5 7 10 12 --seeds 0-24 --refine-best,,False,False,303,303,0,11436.4,2.446106,3.729411,5.526832,17.890576,0.839747,2.446106,True

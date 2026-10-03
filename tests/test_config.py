@@ -23,6 +23,9 @@ def test_preset_overrides():
         {"n_joints": ()},
         {"targets": (3,)},  # only Kangaroo 1..3 (indices 0..2)
         {"seeds": ()},
+        {"seeds": (0, 1, 2, 3, 4, 3)},  # e.g. --seeds 0-4 3: seed 3 would run twice
+        {"targets": (0, 0)},
+        {"n_joints": (7, 7)},
         {"pop_size": 0},
         {"mutation_prob": 1.5},
         {"step_sizes": ()},
