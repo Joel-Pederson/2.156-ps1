@@ -43,7 +43,7 @@ before final submission. `LINKS` runs on JAX, pinned to CPU (`JAX_PLATFORMS=cpu`
 | Where | What it's for | How |
 |---|---|---|
 | `run.py` | The real runs: all 3 kangaroos in parallel, minutes to overnight | `python run.py --preset quick` in a terminal. Saves `runs/<timestamp>/`, logs the score, updates `submissions/best.npy` when it improves |
-| `ps1_results.ipynb` *(coming)* | Visualize: scores, hypervolume plots, best mechanism per kangaroo vs. its target curve | Open, pick a run, **Run All**. It only loads saved results, so closing it never interrupts a run |
+| `results.ipynb` | See what happened and why: the grader's score + the leaderboard sum, the trade-off staircases, the best mechanisms and their fits, DOE heatmap/box plots, refinement's effect, the seeds curve, and where `best.npy`'s designs came from | Pick a run in **Settings**, **Run All** (~40 s). Only reads; with `SAVE_FIGURES` it saves PNGs to `<run>/figures/` (git-ignored) |
 | `explore.ipynb` | Hands-on tour: run the GA on one kangaroo, score it, plot it, pool seeds | Open, select **Python (ps1)**, run top to bottom (~30 s). Saves only to `runs/explore/` |
 | Any notebook | Quick interactive experiments | `from linkopt.config import preset` / `from linkopt.problem import MechanismProblem, evaluate` |
 | Starter / advanced notebooks | The course's explanations and examples | Read only. To experiment, work in a copy: `tests/test_problem.py` compares our code against the advanced notebook's original class cell |
@@ -57,7 +57,7 @@ number of times without re-optimizing.
 1. Change an idea in `linkopt/`, or a setting (presets live in `linkopt/config.py`).
 2. Run it: `python run.py --preset smoke` to check it works (~1 min), then `--preset quick` or
    `full` for a real score.
-3. Read the run's summary (and, once it exists, `ps1_results.ipynb`).
+3. Read the run's summary, then open `results.ipynb` to see what happened and why.
 4. If the score beat `submissions/best_score.json`, `best.npy` and the JSON are updated;
    commit both together.
 5. Push. CI checks the submission against every starter-notebook requirement.
@@ -198,12 +198,14 @@ linkopt/          our framework
   refine.py         fine-tunes the GA's designs with gradients (joint positions only)
   archive.py        pools designs into the best submission; keeps best.npy improving
   pipeline.py       runs many jobs (GA -> refine) in parallel, saves each, pools the run
+  report.py         figures + tables for results.ipynb (reads only; scores from the grader)
   experiments.py    the experiment logs (experiments_jobs.csv / experiments_log.csv)
 run.py            the command for real runs (see "Running experiments")
 experiments_*.csv the committed DOE logs: one row per job / per run (see "Experiment logs")
 score.py          check and score any submission file
 merge.py          pool submission files (teammates', saved runs) into best.npy if better
 explore.ipynb     hands-on tour of the framework (one kangaroo)
+results.ipynb     figures for any run + the current best (for understanding and the report)
 submissions/      best.npy (current best) + best_score.json; all *.npy here are checked by CI
 tests/            pytest suite (see "Tests and CI")
 LINKS/            course library, including the grader (LINKS/CP) - don't edit
