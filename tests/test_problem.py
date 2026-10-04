@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from conftest import ROOT
 
+from linkopt import problem
 from linkopt.problem import (
     MechanismProblem,
     batch_size_for,
@@ -76,6 +77,15 @@ def test_padding_does_not_change_results(random_mechs, target_curve):
     many = evaluate(random_mechs, target_curve)
     np.testing.assert_allclose(few[0], many[0][:5], rtol=RTOL)
     np.testing.assert_allclose(few[1], many[1][:5], rtol=RTOL)
+
+
+def test_big_pools_are_scored_in_chunks(random_mechs, target_curve, monkeypatch):
+    """Chunked scoring (memory stays bounded) gives the same scores, in order."""
+    whole = evaluate(random_mechs, target_curve)
+    monkeypatch.setattr(problem, "EVAL_CHUNK", 16)  # 40 designs -> 16 + 16 + 8
+    chunked = evaluate(random_mechs, target_curve)
+    np.testing.assert_allclose(chunked[0], whole[0], rtol=RTOL)
+    np.testing.assert_allclose(chunked[1], whole[1], rtol=RTOL)
 
 
 def test_batch_sizes():

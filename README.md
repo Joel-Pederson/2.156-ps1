@@ -155,6 +155,8 @@ Jobs run seeds first: all of seed 0 (every kangaroo, size and swept value), then
 so on. So a run stopped halfway still has complete replicates, and a balanced comparison.
 
 While it runs you'll see one line per finished job and a progress bar with the time remaining.
+After the last job, a second bar, **Pooling**, shows each pooling step (reading the job files,
+scoring each kangaroo's designs, grading, updating `best.npy`); for a big run this takes minutes.
 **Ctrl+C once** stops cleanly: finished jobs are kept and pooled, and `--resume` finishes the
 rest. Ctrl+C twice quits immediately (finished jobs are still saved).
 

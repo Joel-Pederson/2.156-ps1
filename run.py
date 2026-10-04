@@ -343,7 +343,23 @@ def main(argv=None) -> int:
     done = pipeline.finished_job_ids(run_dir)
     outcome = None
     if done:
-        outcome = pipeline.pool_run(run_dir, update=update, best_path=args.best)
+        # A second bar: pooling a big run takes minutes, and its label says which
+        # step it's on (scoring a kangaroo is one long step, so it moves in jumps).
+        pool_bar = tqdm(
+            total=1,
+            unit="step",
+            desc="Pooling",
+            bar_format="{desc}: {percentage:3.0f}%|{bar}| [{elapsed} elapsed{postfix}]",
+        )
+
+        def on_step(label, n, total):
+            pool_bar.total, pool_bar.n = total, n
+            pool_bar.set_postfix_str(label)  # also redraws the bar
+
+        outcome = pipeline.pool_run(
+            run_dir, update=update, best_path=args.best, on_step=on_step
+        )
+        pool_bar.close()
         summary = _summary(run_dir, outcome, stopped, update)
         (run_dir / "summary.txt").write_text(summary + "\n")
         print(summary)

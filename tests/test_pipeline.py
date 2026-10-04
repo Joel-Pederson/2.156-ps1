@@ -198,6 +198,37 @@ def test_no_update_best_leaves_it_alone(sandbox):
     assert "not updated" in (only_run_dir(sandbox) / "summary.txt").read_text()
 
 
+@pytest.mark.parametrize("update", [True, False])
+def test_pooling_reports_every_step(sandbox, update):
+    """run.py's pooling bar: one call per step, counting up to the total, ending at it."""
+    flags = (
+        "--preset",
+        "smoke",
+        "--targets",
+        "2",
+        "--workers",
+        "0",
+        "--no-update-best",
+    )
+    assert run.main(args_for(sandbox, *flags)) == 0
+    run_dir = only_run_dir(sandbox)
+    calls = []
+    pipeline.pool_run(
+        run_dir,
+        update=update,
+        best_path=sandbox["best"],
+        on_step=lambda label, n, total: calls.append((label, n, total)),
+    )
+    n_files = len(list((run_dir / "jobs").glob("*.npy")))
+    total = n_files + 3 + 1 + (3 + 2 if update else 0)
+    assert [n for _, n, _ in calls] == list(range(total + 1))
+    assert {t for _, _, t in calls} == {total}
+    labels = [label for label, _, _ in calls]
+    assert labels[0] == "reading job files" and labels[-1] == "done"
+    assert any(label.startswith("scoring Kangaroo 3") for label in labels)
+    assert ("scoring the current best.npy" in labels) == update
+
+
 def test_refine_best_improves_the_best(sandbox):
     old = json.loads(sandbox["best"].with_name("best_score.json").read_text())[
         "overall_score"

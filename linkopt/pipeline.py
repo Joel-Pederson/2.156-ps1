@@ -402,24 +402,47 @@ class RunOutcome:
     best: object  # archive.UpdateResult, or None if best.npy wasn't updated
 
 
-def pool_run(run_dir, update=True, best_path=None) -> RunOutcome:
+def pool_run(run_dir, update=True, best_path=None, on_step=None) -> RunOutcome:
     """Pool every job saved in run_dir: this run's own submission (submission.npy +
-    scores.json in run_dir), then (if update) into best.npy via update_best."""
+    scores.json in run_dir), then (if update) into best.npy via update_best.
+
+    on_step(label, done, total), if given, is called as each step starts (reading a
+    job file, scoring a kangaroo's designs, grading, updating best.npy) and once at
+    the end with done == total: run.py's pooling bar. A big run pools for minutes."""
     run_dir = Path(run_dir)
+    paths = sorted((run_dir / "jobs").glob("*.npy"))
+    total = len(paths) + N_PROBLEMS + 1 + (N_PROBLEMS + 2 if update else 0)
+    done = 0
+
+    def step(label):
+        nonlocal done
+        if on_step:
+            on_step(label, done, total)
+        done += 1
+
     designs = {t: [] for t in range(N_PROBLEMS)}
-    for path in sorted((run_dir / "jobs").glob("*.npy")):
+    for path in paths:
+        step("reading job files")
         saved = np.load(path, allow_pickle=True).item()
         designs[saved["job"]["target"]] += saved["designs"]
 
     # This run on its own (so runs can be compared), scored by the grader.
-    own = {t: select(d, t).designs for t, d in designs.items()}
+    own = {}
+    for t, d in designs.items():
+        step(f"scoring Kangaroo {t + 1}'s {len(d):,} designs")
+        own[t] = select(d, t).designs
+    step("grading this run's submission")
     run_scores = save(build_submission(own), run_dir / "submission.npy")
     (run_dir / "scores.json").write_text(json.dumps(run_scores, indent=2) + "\n")
 
     best = None
     if update:
         kwargs = {"best_path": best_path} if best_path else {}
-        best = update_best(designs, source=f"run.py {run_dir.name}", **kwargs)
+        best = update_best(
+            designs, source=f"run.py {run_dir.name}", on_step=step, **kwargs
+        )
+    if on_step:
+        on_step("done", total, total)
     return RunOutcome(run_scores=run_scores, best=best)
 
 

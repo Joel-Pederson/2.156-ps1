@@ -89,6 +89,13 @@ def batch_size_for(n: int) -> int:
     return max(8, -(-n // 8) * 8)  # -(-n // 8) is n / 8 rounded up
 
 
+# The most mechanisms scored in one LINKS call. Memory grows ~2.1 GB per 1000 designs
+# in one call (the distance tries 400 alignments of 200 points per design), so pooling
+# a big run in one call swapped an 18 GB MacBook (11,600 designs ~ 25 GB). Chunks of
+# 1024 stay near 2.5 GB at about the same speed (~1.5 ms per design either way).
+EVAL_CHUNK = 1024
+
+
 # How far inside the limits a design must be before we count it as "inside".
 # LINKS computes in float32, so the same design's scores shift by ~1e-6 (relative)
 # between calls, and the grader requires strictly < limit. A 1e-4 relative margin
@@ -107,7 +114,8 @@ def safe_limits(reference_point, margin: float = LIMIT_MARGIN) -> np.ndarray:
 
 
 def evaluate(mechs: Sequence[Mapping], target_curve) -> tuple[np.ndarray, np.ndarray]:
-    """Score every mechanism against one target curve, in one batched LINKS call.
+    """Score every mechanism against one target curve, in batched LINKS calls of at
+    most EVAL_CHUNK mechanisms (one call for a GA generation).
 
     Returns two arrays with one number per mechanism:
         distance:  how far the target joint's path is from the target curve (after
@@ -122,6 +130,14 @@ def evaluate(mechs: Sequence[Mapping], target_curve) -> tuple[np.ndarray, np.nda
     n = len(mechs)
     if n == 0:
         return np.empty(0), np.empty(0)
+    if n > EVAL_CHUNK:  # big pools: score chunk by chunk, so memory stays bounded
+        parts = [
+            evaluate(mechs[i : i + EVAL_CHUNK], target_curve)
+            for i in range(0, n, EVAL_CHUNK)
+        ]
+        return np.concatenate([d for d, _ in parts]), np.concatenate(
+            [m for _, m in parts]
+        )
     # Pad with copies of the first mechanism up to a fixed batch size (avoids JAX
     # recompiles); the copies' results are thrown away below.
     padded = list(mechs) + [mechs[0]] * (batch_size_for(n) - n)

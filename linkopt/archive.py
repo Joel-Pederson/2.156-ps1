@@ -227,14 +227,17 @@ def update_best(
     best_path=BEST_PATH,
     fresh=False,
     write=True,
+    on_step=None,
 ):
     """Pool `new_designs` ({target: [designs]}) with the current best, select, score
     with the grader, and replace best.npy only if the overall score went up.
 
     fresh=True ignores the current best's designs (a deliberate reset; merge.py
     asks you to type RESET first). write=False computes everything but writes
-    nothing (merge.py --dry-run).
+    nothing (merge.py --dry-run). on_step(label), if given, is called as each slow
+    step starts (N_PROBLEMS + 2 of them), for a progress bar.
     """
+    step = on_step or (lambda label: None)
     best_path = Path(best_path)
     record_path = best_path.with_name("best_score.json")
     runs_dir = best_path.parent.parent / "runs"  # RUNS_DIR for the real best.npy
@@ -243,6 +246,7 @@ def update_best(
     with _locked(runs_dir / ".best.lock"):
         current = load(best_path) if best_path.exists() else None
         record = json.loads(record_path.read_text()) if record_path.exists() else {}
+        step("scoring the current best.npy")
         # The current best scored now, on this computer, not the recorded score: that
         # may come from another computer (CI's Linux scores the same file ~3e-5
         # differently than a Mac), and the difference would look like an improvement.
@@ -261,11 +265,13 @@ def update_best(
                 [] if (fresh or current is None) else list(current[problem_key(target)])
             )
             pool += list(new_designs.get(target, []))
+            step(f"pooling Kangaroo {target + 1} with best.npy ({len(pool):,} designs)")
             selections[target] = select(pool, target)
 
         # Write the candidate to a temporary file and score it with the grader.
         candidate = runs_dir / ".best_candidate.npy"
         submission = build_submission({t: s.designs for t, s in selections.items()})
+        step("grading the pooled best.npy candidate")
         scores = save(submission, candidate)
         new_score = scores["Overall Score"]
 
