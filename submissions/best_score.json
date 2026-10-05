@@ -1,17 +1,17 @@
 {
-  "overall_score": 2.820788102015712,
+  "overall_score": 2.8239596594095193,
   "score_breakdown": {
     "Problem 1": 4.4036149941335445,
     "Problem 2": 6.424732553875753,
-    "Problem 3": 19.774017730631968
+    "Problem 3": 19.86916445244617
   },
   "normalized_score_breakdown": {
     "Problem 1": 2.2018074970667723,
     "Problem 2": 4.283155035917169,
-    "Problem 3": 1.9774017730631968
+    "Problem 3": 1.986916445244617
   },
-  "source": "merge.py /Users/joelpederson/Downloads/macbook-k2-hailmary-20261005.npy",
-  "date": "2026-10-05 09:59",
+  "source": "run.py 20261005-054217",
+  "date": "2026-10-05 18:00",
   "history": [
     {
       "date": "2026-09-26",
@@ -62,6 +62,11 @@
       "date": "2026-10-05 09:59",
       "source": "merge.py /Users/joelpederson/Downloads/macbook-k2-hailmary-20261005.npy",
       "overall_score": 2.820788102015712
+    },
+    {
+      "date": "2026-10-05 18:00",
+      "source": "run.py 20261005-054217",
+      "overall_score": 2.8239596594095193
     }
   ]
 }
