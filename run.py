@@ -45,6 +45,7 @@ SETTING_FLAGS = {  # command-line flag -> Config field, for the simple settings
     "pop_size": int,
     "n_gen": int,
     "grad_steps": int,
+    "warm_start": float,
 }
 
 
@@ -62,6 +63,9 @@ NOT_SWEEPABLE = {  # the settings --sweep refuses, and what to do instead
     "step_sizes": "each job already tries every step size and logs which one won "
     "(step_size_wins in the logs)",
     "n_workers": "it only changes speed, not results (use --workers)",
+    "warm_start": "run it twice instead (--warm-start 0, then --warm-start 0.5): "
+    "every run's full command is logged, so the two runs can be compared. Sweeping "
+    "it would need a new column in the committed logs, which older code can't read",
 }
 # Flags a --resume can't change (the run's saved settings are used), by args name.
 RESUME_KEEPS = [

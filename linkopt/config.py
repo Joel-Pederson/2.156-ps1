@@ -41,6 +41,14 @@ class Config:
     # PolynomialMutation(prob=0.5) is ignored because it also passes its own mating.
     mutation_prob: float | None = None
 
+    # Warm start: the fraction of the starting population taken from best.npy's
+    # designs for this kangaroo, the rest random (see ga.warm_start_mechs).
+    # 0.0 = every run starts from random blobs, which is what the notebook does and
+    # what every run so far has done. 0.5 starts half the population on the current
+    # front and keeps half random, so the GA still explores; 1.0 risks a population
+    # whose designs are all relatives of the same few, which crossover can't vary.
+    warm_start: float = 0.0
+
     # Gradient refinement (DifferentiableTools), applied to the GA's designs.
     grad_steps: int = 200  # maximum number of steps
     # Step sizes to try. Each design is refined once per size and keeps whichever
@@ -89,6 +97,8 @@ class Config:
             raise ValueError(
                 f"mutation_prob must be in [0, 1], got {self.mutation_prob}"
             )
+        if not 0 <= self.warm_start <= 1:
+            raise ValueError(f"warm_start must be in [0, 1], got {self.warm_start}")
 
     def to_dict(self) -> dict:
         return asdict(self)

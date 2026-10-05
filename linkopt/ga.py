@@ -3,7 +3,8 @@
 This is the advanced notebook's GA, from "Now let's generate 100 mechanisms of
 size 7" onward. The pipeline:
 
-    1. make_start_population   random mechanisms that move (don't jam)
+    1. make_start_population   random mechanisms that move (don't jam), and, with
+       / warm_start_mechs      cfg.warm_start, some of best.npy's designs
     2. run_ga                  NSGA-II evolves them toward the kangaroo
     3. GAResult                the best designs it found, ready to submit
 
@@ -37,6 +38,7 @@ Two differences from the notebook: mutation_prob actually sets the mutation rate
 
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 from pymoo.algorithms.moo.nsga2 import NSGA2
@@ -49,8 +51,8 @@ from pymoo.operators.repair.rounding import RoundingRepair
 from pymoo.optimize import minimize
 
 from linkopt.config import Config
-from linkopt.problem import MechanismProblem
-from linkopt.submission import TARGET_CURVES_PATH
+from linkopt.problem import MechanismProblem, evaluate
+from linkopt.submission import TARGET_CURVES_PATH, load, problem_key
 from LINKS.CP import MAX_JOINTS, REFERENCE_POINTS
 from LINKS.Optimization import MechanismRandomizer
 
@@ -58,6 +60,10 @@ from LINKS.Optimization import MechanismRandomizer
 # (from LINKS); this is our one copy of it. Making it is instant; its first use takes
 # about a second (JAX compiles the simulator), and every use after that is fast.
 RANDOMIZER = MechanismRandomizer(max_size=MAX_JOINTS, device="cpu")
+
+# best.npy, for warm starts (cfg.warm_start). This is the same file as
+# archive.BEST_PATH, spelled out again because archive imports this module.
+BEST_PATH = Path(__file__).resolve().parent.parent / "submissions" / "best.npy"
 
 
 def target_curve(target):
@@ -74,6 +80,44 @@ def make_start_population(n_joints, count, seed):
     """
     np.random.seed(seed)  # the randomizer uses numpy's global random numbers
     return [RANDOMIZER(n=n_joints) for _ in range(count)]
+
+
+def warm_start_mechs(target, n_joints, count, best_path=None):
+    """`count` of best.npy's designs for kangaroo `target`, to start the GA from.
+
+    A random starting mechanism traces a blob, nothing like a kangaroo (distance
+    around 2 on most of them), so every run spends its first generations getting back
+    to where the last run already was. Once best.npy holds a good front, starting part
+    of the population there begins the search from it instead: the advanced notebook's
+    "cycle through multiple optimization runs" hint.
+
+    Only mechanisms with at most `n_joints` joints can be used, because
+    MechanismProblem.from_mech pads a smaller one up to n_joints (the padding joints
+    are unconnected and marked fixed) but cannot shrink a bigger one.
+
+    The ones picked are spread evenly along the front by material, not taken from its
+    most accurate end: the hypervolume rewards a spread of designs, and a population
+    cloned from one corner of the front leaves crossover nothing to vary.
+
+    Returns [] when best.npy is missing or holds nothing usable, so the caller simply
+    falls back to random mechanisms.
+    """
+    path = Path(best_path) if best_path else BEST_PATH
+    if count <= 0 or not path.exists():
+        return []
+    usable = [
+        e
+        for e in load(path)[problem_key(target)]
+        if np.asarray(e["x0"]).shape[0] <= n_joints
+    ]
+    if not usable:
+        return []
+    _, material = evaluate(usable, target_curve(target))
+    order = np.argsort(material)  # along the front: cheapest first
+    # Evenly spaced picks along the front, both ends included. np.unique also sorts,
+    # and drops the repeats when count is larger than the front.
+    spread = np.linspace(0, len(order) - 1, min(count, len(order)))
+    return [usable[order[i]] for i in np.unique(spread.round().astype(int))]
 
 
 class _FromDesigns(Sampling):
@@ -163,7 +207,13 @@ def run_ga(target, n_joints, seed, cfg: Config, verbose=False, callback=None):
     #    target_joint given, the last joint is used as the traced joint.
     #    problem.evaluate scores the starting designs; start_F is one row of
     #    [distance, material] per design, kept only to compare before vs after.
-    start_mechs = make_start_population(n_joints, cfg.n_start, seed)
+    #    With cfg.warm_start > 0, that fraction of the starting designs comes from
+    #    best.npy instead (warm_start_mechs); the rest are random, as before. Fewer
+    #    usable designs than asked for just means more random ones.
+    warm = warm_start_mechs(target, n_joints, round(cfg.n_start * cfg.warm_start))
+    start_mechs = warm + make_start_population(
+        n_joints, cfg.n_start - len(warm), seed
+    )
     start = [problem.from_mech(m) for m in start_mechs]
     start_F = problem.evaluate(np.array(start), return_values_of=["F"])
 
