@@ -128,13 +128,16 @@ def refine(designs, target, cfg: Config, margin=LIMIT_MARGIN) -> RefineResult:
     refined = [dict(d, x0=x0) for d, x0 in zip(designs, best_x)]
 
     # 3. Re-score with the grader's scorer. Safety net: any design outside the
-    #    limits (not expected, thanks to the margin) goes back to its input version.
+    #    limits (not expected, thanks to the margin), or with a higher distance than
+    #    it started with, goes back to its input version. The descent picks "best"
+    #    by DifferentiableTools' distance, which can differ slightly from the
+    #    grader's (one design: 0.198989 -> 0.199053), so check with the grader's.
     F_after = _scores(refined, curve)
-    outside = ~(F_after <= limits).all(axis=1)
-    for i in np.where(outside)[0]:
+    revert = ~(F_after <= limits).all(axis=1) | (F_after[:, 0] > F_before[:, 0])
+    for i in np.where(revert)[0]:
         refined[i] = dict(designs[i])
         steps[i], step_size[i] = 0, 0.0
-    F_after[outside] = F_before[outside]
+    F_after[revert] = F_before[revert]
 
     return RefineResult(
         target=target,

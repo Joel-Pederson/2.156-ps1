@@ -17,9 +17,13 @@ Used by results.ipynb. The main pieces:
     provenance         which jobs the designs in best.npy came from
     plot_convergence   convergence.py's curves: one job's score vs. generations
                        and vs. refinement steps
+    score_history      best.npy after each improvement, re-scored (from the backups)
+    plot_score_per_hour, plot_interaction   a multi-factor sweep's conclusions
+    make_report_figures   every report figure, written to one folder
 """
 
 import csv
+import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -600,6 +604,298 @@ def plot_convergence(rows, snapshot_gen, current_steps):
         ref_ax.set_ylabel("Hypervolume after Refining (GA + Gradient)")
     fig.tight_layout()
     return fig
+
+
+# --- The whole project: score history, knob sweeps, report figures --------------------
+
+
+def score_history(best_path=BEST_PATH) -> list[dict]:
+    """Every best.npy so far, from best_score.json's history, each re-scored by the
+    grader: [{date, source, overall, hv: [k1, k2, k3] or None, total}].
+
+    The earlier files are the backups update_best keeps in runs/best_backups/ (one
+    per replacement, oldest first). Each is checked against its history entry's
+    score; an entry whose file isn't on this computer gets hv None. The current
+    best.npy is always the last entry.
+    """
+    best_path = Path(best_path)
+    history = json.loads(best_path.with_name("best_score.json").read_text())["history"]
+    backups = sorted(
+        (best_path.parent.parent / "runs" / "best_backups").glob("best-*.npy")
+    )
+    if len(backups) + 1 == len(history):
+        files = [*backups, best_path]
+    else:  # backups from another computer, or deleted: only the current file is known
+        files = [None] * (len(history) - 1) + [best_path]
+    out = []
+    for entry, path in zip(history, files):
+        hv = None
+        if path is not None:
+            scores = evaluate_submission(str(path), str(TARGET_CURVES_PATH))
+            if abs(scores["Overall Score"] - entry["overall_score"]) <= 1e-3:
+                hv = [scores["Score Breakdown"][f"Problem {t + 1}"] for t in range(3)]
+        out.append(
+            {
+                "date": entry["date"],
+                "source": entry["source"],
+                "overall": entry["overall_score"],
+                "hv": hv,
+                "total": sum(hv) if hv else None,
+            }
+        )
+    return out
+
+
+def plot_score_history(history, labels=None):
+    """The leaderboard score (sum of the three hypervolumes) after each improvement
+    of best.npy, stacked by kangaroo. labels: {text found in the entry's source
+    (e.g. a run id): name to show}; a name seen again gets "(cont.)"."""
+    labels = labels or {}
+    shown = [h for h in history if h["hv"] is not None]
+    names, seen = [], set()
+    for h in shown:
+        name = next((v for k, v in labels.items() if k in h["source"]), None)
+        if name is None:
+            name = h["source"].split("/")[-1].replace("run.py ", "run ")
+        names.append(name + (" (cont.)" if name in seen else ""))
+        seen.add(name)
+    fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(shown) + 2), 5))
+    x = np.arange(len(shown))
+    bottom = np.zeros(len(shown))
+    for t, color in zip(range(3), ("#9ecae1", "#4292c6", "#08519c")):
+        heights = np.array([h["hv"][t] for h in shown])
+        ax.bar(x, heights, bottom=bottom, width=0.6, color=color, label=KANGAROOS[t])
+        bottom += heights
+    for i, total in zip(x, bottom):
+        ax.text(i, total + 0.01 * bottom.max(), f"{total:.2f}", ha="center", fontsize=9)
+    ax.set_xticks(x, [n.replace(" (", "\n(") for n in names], fontsize=8)
+    ax.set_ylabel("Sum of the Three Hypervolumes (Leaderboard Score)")
+    ax.set_title("Our Submission's Score after Each Improvement (Stacked by Kangaroo)")
+    ax.set_ylim(0, bottom.max() * 1.12 if len(shown) else 1)
+    ax.legend(loc="upper left", fontsize=8)
+    _style(ax, grid_axis="y")
+    fig.tight_layout()
+    return fig
+
+
+def pooled_vs_hours(
+    rows, scored, panel_factor="n_joints", line_factors=("n_gen", "grad_steps")
+):
+    """For a sweep: {(kangaroo, panel level, line settings): [(job-hours, pooled
+    hypervolume)]}, adding that setting's jobs seed by seed. Settings that reach a
+    higher pooled score with the same hours use compute better."""
+    out = {}
+    keys = sorted(
+        {
+            (r["kangaroo"], r[panel_factor], tuple(r[f] for f in line_factors))
+            for r in rows
+        },
+        key=lambda k: (k[0], _sort_key(k[1]), [_sort_key(v) for v in k[2]]),
+    )
+    for k, level, setting in keys:
+        jobs = sorted(
+            (
+                r
+                for r in rows
+                if (r["kangaroo"], r[panel_factor], tuple(r[f] for f in line_factors))
+                == (k, level, setting)
+            ),
+            key=lambda r: r["seed"],
+        )
+        pooled, hours, curve = np.empty((0, 2)), 0.0, []
+        for r in jobs:
+            pooled = np.vstack([pooled, scored.get(r["job_id"], np.empty((0, 2)))])
+            hours += r["seconds"] / 3600
+            curve.append((hours, hypervolume(pooled, k - 1)))
+        out[(k, level, setting)] = curve
+    return out
+
+
+def plot_score_per_hour(
+    curves, panel_factor="n_joints", line_factors=("n_gen", "grad_steps")
+):
+    """pooled_vs_hours as a grid (rows: panel_factor levels, columns: kangaroos).
+    Line colour: one hue per level of the first line factor, darker for higher
+    levels of the second."""
+    kangaroos = sorted({k for k, _, _ in curves})
+    levels = sorted({lvl for _, lvl, _ in curves}, key=_sort_key)
+    settings = sorted(
+        {s for _, _, s in curves}, key=lambda s: [_sort_key(v) for v in s]
+    )
+    firsts = sorted({s[0] for s in settings}, key=_sort_key)
+    seconds = sorted({s[1:] for s in settings}, key=lambda s: [_sort_key(v) for v in s])
+    hues = (plt.cm.Blues, plt.cm.Oranges, plt.cm.Greens, plt.cm.Purples, plt.cm.Greys)
+    fig, axs = plt.subplots(
+        len(levels),
+        len(kangaroos),
+        figsize=(5.3 * len(kangaroos), 4.4 * len(levels)),
+        squeeze=False,
+    )
+    for row, lvl in enumerate(levels):
+        for col, k in enumerate(kangaroos):
+            ax = axs[row, col]
+            for s in settings:
+                curve = curves.get((k, lvl, s))
+                if not curve:
+                    continue
+                shade = 0.45 + 0.5 * seconds.index(s[1:]) / max(1, len(seconds) - 1)
+                ax.plot(
+                    *zip(*curve),
+                    marker=".",
+                    ms=3,
+                    color=hues[firsts.index(s[0]) % len(hues)](shade),
+                    label=", ".join(
+                        f"{FACTOR_LABELS.get(f, f)} {v}"
+                        for f, v in zip(line_factors, s)
+                    ),
+                )
+            ax.set_title(
+                f"{KANGAROOS[k - 1]}, {FACTOR_LABELS.get(panel_factor, panel_factor)} {lvl}"
+            )
+            ax.set_xlabel("Job-Hours Used (Seeds Added One at a Time)")
+            ax.set_ylabel("Pooled Hypervolume")
+            ax.legend(fontsize=7)
+            _style(ax)
+    fig.suptitle(
+        "Pooled Score vs. Compute Spent (Higher at the Same Hours = Better Use of Time)"
+    )
+    fig.tight_layout()
+    return fig
+
+
+def plot_interaction(rows, x_factor="n_gen", line_factor="n_joints"):
+    """DOE interaction plot, per kangaroo: one job's hypervolume (median, IQR bars)
+    at each x_factor level, one line per line_factor level. Lines that aren't
+    parallel: the levels respond differently. The legend gives each line's gain
+    from the lowest to the highest x level."""
+    kangaroos = sorted({r["kangaroo"] for r in rows})
+    xs = sorted({r[x_factor] for r in rows}, key=_sort_key)
+    lines = sorted({r[line_factor] for r in rows}, key=_sort_key)
+    fig, axs = plt.subplots(
+        1, len(kangaroos), figsize=(5 * len(kangaroos), 4.6), squeeze=False
+    )
+    for ax, k in zip(axs[0], kangaroos):
+        for i, lvl in enumerate(lines):
+            med, lo, hi = [], [], []
+            for x in xs:
+                v = [
+                    r["hv_refined"]
+                    for r in rows
+                    if (r["kangaroo"], r[x_factor], r[line_factor]) == (k, x, lvl)
+                ]
+                q1, m, q3 = np.percentile(v, [25, 50, 75]) if v else (np.nan,) * 3
+                med.append(m)
+                lo.append(m - q1)
+                hi.append(q3 - m)
+            ax.errorbar(
+                [str(x) for x in xs],
+                med,
+                yerr=[lo, hi],
+                marker="o",
+                capsize=5,
+                lw=2,
+                color=plt.cm.tab10(i),
+                label=f"{_level_label(line_factor, lvl)} (gain {med[-1] - med[0]:+.2f})",
+            )
+        ax.set_title(KANGAROOS[k - 1])
+        ax.set_xlabel(_axis_label(x_factor))
+        ax.set_ylabel("One Job's Hypervolume (Median, IQR Bars)")
+        ax.legend(fontsize=8)
+        _style(ax)
+    fig.suptitle(
+        f"Interaction: {FACTOR_LABELS.get(x_factor, x_factor)} x "
+        f"{FACTOR_LABELS.get(line_factor, line_factor)}"
+    )
+    fig.tight_layout()
+    return fig
+
+
+def make_report_figures(
+    out_dir,
+    doe_runs=None,
+    knob_sweep=None,
+    convergence=None,
+    labels=None,
+    best_path=BEST_PATH,
+    runs_dir=RUNS_DIR,
+) -> list[Path]:
+    """Write every report figure to out_dir as PNGs (+ final_scores.txt):
+        final_*      the submission (best.npy): scores, trade-offs, picked designs,
+                     fronts, provenance, and the score after each improvement
+        <name>_*     each DOE run in doe_runs ({name: run folder}): heatmap, boxes,
+                     refinement effect, seeds curve (factor: what the run varied)
+        knobsweep_*  a multi-factor sweep: score per compute hour, interaction
+        convergence_test   a convergence.py run
+    Runs not on this computer are skipped. Returns the paths written."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    figures, paths = {}, []
+
+    def flush():  # save and close each group, so few figures are open at once
+        paths.extend(save_figures(figures, out_dir))
+        plt.close("all")
+        figures.clear()
+
+    table = score_table(best_path)
+    lines = [
+        f"{'':32s} {'hypervolume':>11s} {'normalized':>10s} {'box':>6s} {'covered':>8s}"
+    ]
+    lines += [
+        f"{r['kangaroo']:32s} {r['hv']:11.3f} {r['hv_norm']:10.3f} {r['box']:6.1f} {r['coverage']:8.1%}"
+        for r in table["rows"]
+    ]
+    lines += [
+        f"grader's overall (mean of normalized): {table['overall']:.4f}",
+        f"leaderboard (sum of hypervolumes): {table['leaderboard']:.3f}",
+    ]
+    (out_dir / "final_scores.txt").write_text("\n".join(lines) + "\n")
+
+    for t, (designs, F) in submission_scores(load(best_path)).items():
+        figures[f"final_tradeoff_k{t + 1}"] = plot_trade_off(F, t)
+        for name, i in pick_designs(F).items():
+            figures[f"final_design_k{t + 1}_{name.replace(' ', '_')}"] = plot_design(
+                designs[i], t, f"{KANGAROOS[t]}, {name.title()}"
+            )
+        figures[f"final_front_k{t + 1}"] = plot_front(designs, F, t, max_rows=6)
+    figures["final_provenance"] = plot_provenance(provenance(best_path, runs_dir))
+    figures["final_score_progression"] = plot_score_history(
+        score_history(best_path), labels
+    )
+    flush()
+
+    for name, run in (doe_runs or {}).items():
+        if not (Path(run) / "jobs.csv").exists():
+            continue
+        rows = read_jobs(run)
+        varied = factors_varied(rows)
+        if not varied:
+            continue
+        factor = varied[0]
+        figures[f"{name}_heatmap"] = plot_doe_heatmap(rows, factor)
+        figures[f"{name}_boxes"] = plot_doe_boxes(rows, factor)
+        figures[f"{name}_ga_vs_refined"] = plot_ga_vs_refined(rows, factor)
+        figures[f"{name}_seeds_curve"] = plot_seeds_curve(
+            seeds_curve(rows, job_F(run), factor), factor
+        )
+        flush()
+
+    if knob_sweep and (Path(knob_sweep) / "jobs.csv").exists():
+        rows = read_jobs(knob_sweep)
+        figures["knobsweep_score_per_hour"] = plot_score_per_hour(
+            pooled_vs_hours(rows, job_F(knob_sweep))
+        )
+        figures["knobsweep_interaction"] = plot_interaction(rows)
+
+    if convergence and (Path(convergence) / "curves.csv").exists():
+        cfg = json.loads((Path(convergence) / "config.json").read_text())
+        figures["convergence_test"] = plot_convergence(
+            read_convergence(convergence),
+            cfg["snapshot_gen"],
+            cfg["config"]["grad_steps"],
+        )
+
+    flush()
+    return paths
 
 
 # --- Saving -------------------------------------------------------------------------
