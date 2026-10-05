@@ -1,17 +1,17 @@
 {
-  "overall_score": 2.6831237104688737,
+  "overall_score": 2.7694793496464203,
   "score_breakdown": {
-    "Problem 1": 4.370011788422129,
-    "Problem 2": 5.947662197562888,
-    "Problem 3": 18.99257105486965
+    "Problem 1": 4.4036149941335445,
+    "Problem 2": 6.3011864324418525,
+    "Problem 3": 19.058395969112524
   },
   "normalized_score_breakdown": {
-    "Problem 1": 2.1850058942110646,
-    "Problem 2": 3.965108131708592,
-    "Problem 3": 1.899257105486965
+    "Problem 1": 2.2018074970667723,
+    "Problem 2": 4.200790954961235,
+    "Problem 3": 1.9058395969112525
   },
-  "source": "merge.py /Users/joelpederson/Downloads/submission.npy",
-  "date": "2026-10-04 07:58",
+  "source": "run.py 20261003-182205",
+  "date": "2026-10-04 23:34",
   "history": [
     {
       "date": "2026-09-26",
@@ -47,6 +47,11 @@
       "date": "2026-10-04 07:58",
       "source": "merge.py /Users/joelpederson/Downloads/submission.npy",
       "overall_score": 2.6831237104688737
+    },
+    {
+      "date": "2026-10-04 23:34",
+      "source": "run.py 20261003-182205",
+      "overall_score": 2.7694793496464203
     }
   ]
 }
