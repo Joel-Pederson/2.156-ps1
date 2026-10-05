@@ -8,7 +8,10 @@ For each kangaroo, `select` turns a pile of designs into the ones worth submitti
     4. Drop duplicates (same links, fixed joints, motor, target joint, and the same
        positions to 9 decimal places).
     5. Keep only non-dominated designs: a design beaten on both distance and
-       material adds no area, so no score.
+       material adds no area, so no score. Designs on the front are also checked
+       for fragility (see `fragile`): one that jams, or could be pushed over the
+       distance limit, when its joints move a millionth is dropped, because another
+       computer's rounding can score it differently.
     6. If more than 1000 remain, trim to 1000 while losing as little hypervolume as
        possible: repeatedly remove the design that alone covers the least area.
 
@@ -17,6 +20,9 @@ the result with the course grader, and only replaces best.npy if the score went
 up. Because the current best's designs are always in the pool, nothing already in
 it can be lost. Writes are locked (one writer at a time) and atomic (a temporary
 file is swapped in), and the previous best.npy is backed up to runs/best_backups/.
+
+`recheck_best` re-runs `select` on best.npy's own designs and saves the result even
+if the score drops, for when `select` gets stricter (merge.py --recheck).
 """
 
 import fcntl
@@ -54,6 +60,15 @@ RUNS_DIR = ROOT / "runs"  # git-ignored: backups, the lock, temporary files
 # can shift the score by ~1e-6; that noise must not count as an improvement.
 MIN_IMPROVEMENT = 1e-5
 
+# Fragile designs (step 5): each design on the front is re-scored FRAGILE_TRIALS
+# times with every joint moved by random amounts of about FRAGILE_NUDGE (fixed seed,
+# so the check is deterministic). CI's Linux scored six tiny Kangaroo 3 blobs over
+# the distance limit that the Mac scored inside it (e.g. 1.710 -> 1.768); a nudge
+# this small changes their distance by 3-11% or jams them. A healthy design changes
+# by about a millionth.
+FRAGILE_NUDGE = 1e-6
+FRAGILE_TRIALS = 3
+
 
 # --- Selection: one kangaroo ------------------------------------------------------
 
@@ -72,7 +87,13 @@ class Selection:
         return hypervolume(self.F, self.target)
 
 
-def select(designs, target, margin=LIMIT_MARGIN, max_designs=MAX_PER_PROBLEM):
+def select(
+    designs,
+    target,
+    margin=LIMIT_MARGIN,
+    max_designs=MAX_PER_PROBLEM,
+    check_fragile=True,
+):
     """The designs worth submitting for kangaroo `target` (steps 1-6 above)."""
     counts = {"in": len(designs)}
 
@@ -85,7 +106,7 @@ def select(designs, target, margin=LIMIT_MARGIN, max_designs=MAX_PER_PROBLEM):
     F = np.column_stack(evaluate(entries, target_curve(target))) if entries else None
 
     # 3-6. Choose which to keep.
-    keep, reasons = _choose(F, entries, target, margin, max_designs)
+    keep, reasons = _choose(F, entries, target, margin, max_designs, check_fragile)
     counts.update(reasons)
     counts["kept"] = len(keep)
     return Selection(
@@ -96,9 +117,16 @@ def select(designs, target, margin=LIMIT_MARGIN, max_designs=MAX_PER_PROBLEM):
     )
 
 
-def _choose(F, entries, target, margin, max_designs):
-    """Indices of the designs to keep (steps 3-6), plus drop counts per reason."""
-    reasons = {"outside_limits": 0, "duplicate": 0, "dominated": 0, "trimmed": 0}
+def _choose(F, entries, target, margin, max_designs, check_fragile=True):
+    """Indices of the designs to keep (steps 3-6), plus drop counts per reason.
+    check_fragile=False skips the fragility check (for made-up test designs)."""
+    reasons = {
+        "outside_limits": 0,
+        "duplicate": 0,
+        "fragile": 0,
+        "dominated": 0,
+        "trimmed": 0,
+    }
     if F is None or len(F) == 0:
         return [], reasons
 
@@ -116,14 +144,52 @@ def _choose(F, entries, target, margin, max_designs):
             unique.append(i)
     reasons["duplicate"] = len(idx) - len(unique)
 
-    # 5. Non-dominated only.
-    front = [unique[j] for j in non_dominated(F[unique])]
-    reasons["dominated"] = len(unique) - len(front)
+    # 5. Non-dominated only, and not fragile. Only the front is checked (it's what
+    #    gets submitted); dropping a fragile design can bring one it dominated onto
+    #    the front, so repeat until the front has no unchecked designs.
+    candidates, checked, dropped = list(unique), set(), set()
+    while candidates:
+        front = [candidates[j] for j in non_dominated(F[candidates])]
+        new = [i for i in front if i not in checked] if check_fragile else []
+        if not new:
+            break
+        checked.update(new)
+        flags = fragile([entries[i] for i in new], F[new], target, limits)
+        dropped.update(i for i, f in zip(new, flags) if f)
+        candidates = [i for i in candidates if i not in dropped]
+    if not candidates:
+        front = []
+    reasons["fragile"] = len(dropped)
+    reasons["dominated"] = len(unique) - len(dropped) - len(front)
 
     # 6. At most max_designs, losing as little hypervolume as possible.
     kept = [front[j] for j in trim(F[front], target, max_designs)]
     reasons["trimmed"] = len(front) - len(kept)
     return kept, reasons
+
+
+def fragile(entries, F, target, limits) -> np.ndarray:
+    """True for each design that jams, or whose distance could cross the distance
+    limit, when every joint is nudged by about FRAGILE_NUDGE: such a design sits at a
+    singular configuration (about to jam), and another computer's rounding can score
+    it differently. "Could cross": distance x (1 + 3 x the largest relative change
+    seen) reaches the limit. F: the designs' [distance, material]; limits: the safe
+    limits used for selection."""
+    rng = np.random.default_rng(0)
+    worst = np.zeros(len(entries))
+    for _ in range(FRAGILE_TRIALS):
+        nudged = [
+            dict(
+                e,
+                x0=np.asarray(e["x0"], dtype=float)
+                + rng.normal(0, FRAGILE_NUDGE, np.shape(e["x0"])),
+            )
+            for e in entries
+        ]
+        distance, _ = evaluate(nudged, target_curve(target))
+        change = np.abs(distance - F[:, 0]) / F[:, 0]
+        worst = np.maximum(worst, np.where(np.isfinite(change), change, np.inf))
+    return F[:, 0] * (1 + 3 * worst) >= limits[0]
 
 
 def _entry_or_none(mech):
@@ -278,13 +344,7 @@ def update_best(
         improved = write and (fresh or new_score > old_score * (1 + MIN_IMPROVEMENT))
         backup = None
         if improved:
-            if best_path.exists():
-                backups = runs_dir / "best_backups"
-                backups.mkdir(exist_ok=True)
-                stamp = datetime.now().strftime("%Y%m%d-%H%M%S")  # noqa: DTZ005 (local time)
-                backup = backups / f"best-{stamp}.npy"
-                shutil.copy2(best_path, backup)
-            os.replace(candidate, best_path)  # atomic: never a half-written best.npy
+            backup = _replace(best_path, candidate, runs_dir)
             _write_record(record_path, record, scores, source, fresh)
         else:
             candidate.unlink(missing_ok=True)
@@ -297,6 +357,64 @@ def update_best(
         selections=selections,
         backup=backup,
     )
+
+
+def recheck_best(best_path=BEST_PATH, source="merge.py --recheck", write=True):
+    """Re-run `select` on best.npy's own designs (nothing new) and save the result if
+    anything was dropped, even though the score can fall a little: for when `select`
+    gets stricter, e.g. the fragility check. The history is kept, with this as its
+    newest entry; the previous file is backed up as usual."""
+    best_path = Path(best_path)
+    record_path = best_path.with_name("best_score.json")
+    runs_dir = best_path.parent.parent / "runs"
+    runs_dir.mkdir(exist_ok=True)
+
+    with _locked(runs_dir / ".best.lock"):
+        current = load(best_path)
+        record = json.loads(record_path.read_text()) if record_path.exists() else {}
+        old_score = evaluate_submission(str(best_path), str(TARGET_CURVES_PATH))[
+            "Overall Score"
+        ]
+        selections = {
+            t: select(list(current[problem_key(t)]), t) for t in range(N_PROBLEMS)
+        }
+        changed = any(
+            len(sel.designs) != len(current[problem_key(t)])
+            for t, sel in selections.items()
+        )
+        candidate = runs_dir / ".best_candidate.npy"
+        submission = build_submission({t: s.designs for t, s in selections.items()})
+        scores = save(submission, candidate)
+        written = write and changed
+        backup = None
+        if written:
+            backup = _replace(best_path, candidate, runs_dir)
+            _write_record(record_path, record, scores, source, fresh=False)
+        else:
+            candidate.unlink(missing_ok=True)
+
+    return UpdateResult(
+        improved=written,
+        old_score=old_score,
+        new_score=scores["Overall Score"],
+        scores=scores,
+        selections=selections,
+        backup=backup,
+    )
+
+
+def _replace(best_path, candidate, runs_dir):
+    """Back up best.npy (if any) and swap the candidate in atomically, so best.npy is
+    never half-written. Returns the backup's path (or None)."""
+    backup = None
+    if best_path.exists():
+        backups = runs_dir / "best_backups"
+        backups.mkdir(exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")  # noqa: DTZ005 (local time)
+        backup = backups / f"best-{stamp}.npy"
+        shutil.copy2(best_path, backup)
+    os.replace(candidate, best_path)
+    return backup
 
 
 def _write_record(record_path, old_record, scores, source, fresh):

@@ -21,8 +21,8 @@ from linkopt.config import preset
 from linkopt.ga import target_curve
 from linkopt.pipeline import Job, make_jobs
 from linkopt.problem import evaluate
-from linkopt.submission import load, validate
-from LINKS.CP import REFERENCE_POINTS, SCORE_NORMALIZERS
+from linkopt.submission import TARGET_CURVES_PATH, load, validate
+from LINKS.CP import REFERENCE_POINTS, SCORE_NORMALIZERS, evaluate_submission
 
 
 @pytest.fixture
@@ -230,8 +230,10 @@ def test_pooling_reports_every_step(sandbox, update):
 
 
 def test_refine_best_improves_the_best(sandbox):
-    old = json.loads(sandbox["best"].with_name("best_score.json").read_text())[
-        "overall_score"
+    # scored here, not read from best_score.json: that was recorded on another
+    # computer, and CI's Linux scores the same file slightly differently
+    old = evaluate_submission(str(sandbox["best"]), str(TARGET_CURVES_PATH))[
+        "Overall Score"
     ]
     flags = ("--preset", "smoke", "--targets", "1", "--workers", "0", "--refine-best")
     assert run.main(args_for(sandbox, *flags)) == 0

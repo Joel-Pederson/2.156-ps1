@@ -301,6 +301,11 @@ python merge.py fatak.npy leif.npy    # pool with best.npy; saved only if the sc
 - **If git reports a conflict on `best.npy`** (two of you both improved it), don't pick one side:
   save the other version to a file (e.g. `git show origin/main:submissions/best.npy > theirs.npy`),
   keep yours, and run `python merge.py theirs.npy`. The pooled result is at least as good as both.
+- `python merge.py --recheck` re-selects `best.npy`'s own designs with the current rules and
+  saves the result even if the score falls a little. Selection drops *fragile* designs: ones that
+  jam, or could be pushed over the distance limit, when their joints move a millionth. Another
+  computer's rounding can score them differently (CI's Linux put six tiny Kangaroo 3 blobs over
+  the limit that a Mac scored inside it). Run it after a run whose code predates the check.
 - `python merge.py --fresh ...` replaces the best with only the given files. It asks you to type
   `RESET`, and is only for deliberate restarts (e.g. if the course changes the grader).
 - Don't copy files over `best.npy` by hand: CI fails if it scores below `best_score.json` or

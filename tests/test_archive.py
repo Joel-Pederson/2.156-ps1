@@ -4,6 +4,7 @@ import copy
 import itertools
 import json
 import shutil
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -13,19 +14,23 @@ import merge
 from linkopt import archive
 from linkopt.archive import (
     _choose,
+    _design_key,
     contributions,
+    fragile,
     hypervolume,
     non_dominated,
+    recheck_best,
     select,
     trim,
     update_best,
 )
 from linkopt.ga import target_curve
-from linkopt.problem import evaluate
-from linkopt.submission import load, validate
+from linkopt.problem import evaluate, safe_limits
+from linkopt.submission import fill_default_target_joints, load, save, validate
 from LINKS.CP import REFERENCE_POINTS
 
 K2 = 1  # Kangaroo 2: limits (distance 1.2, material 10)
+K3 = 2  # Kangaroo 3: limits (distance 1.75, material 20)
 
 
 def random_front(seed, n):
@@ -127,11 +132,22 @@ def test_broken_entries_are_dropped_and_the_rest_kept(k3_designs):
 
 
 def test_starter_style_designs_keep_their_score(k3_designs):
-    starter_style = [
-        dict(d, target_joint=None, motor=list(d["motor"])) for d in k3_designs
+    """Starter-notebook files have no target_joint, so the grader traces its default
+    joint. For designs that already trace that joint, dropping target_joint must not
+    change anything. (Designs tracing another joint do change: the starter format
+    can't express them, which is why our files always set target_joint.)"""
+    defaults = fill_default_target_joints(
+        [dict(d, target_joint=None) for d in k3_designs]
+    )
+    same = [
+        d
+        for d, f in zip(k3_designs, defaults)
+        if f["target_joint"] == d["target_joint"]
     ]
+    assert same  # best.npy has some designs tracing the default joint
+    starter_style = [dict(d, target_joint=None, motor=list(d["motor"])) for d in same]
     assert select(starter_style, 2).hypervolume == pytest.approx(
-        select(k3_designs, 2).hypervolume, rel=1e-6
+        select(same, 2).hypervolume, rel=1e-6
     )
 
 
@@ -155,8 +171,30 @@ def test_safety_margin_drops_designs_just_inside_the_limits():
         }
         for i in range(4)
     ]
-    kept, reasons = _choose(F, entries, K2, 1e-4, 1000)
+    # made-up designs: skip the fragility check (it would simulate them)
+    kept, reasons = _choose(F, entries, K2, 1e-4, 1000, check_fragile=False)
     assert kept == [1] and reasons["outside_limits"] == 3
+
+
+FRAGILE = Path(__file__).with_name("fragile_designs.npy")
+
+
+def _fragile_fixture():
+    """Three fragile Kangaroo 3 designs from best.npy before the fragility check (one
+    jams, two jump 6-11% under a millionth nudge; CI's Linux put one at distance
+    1.768, over the limit) and three healthy ones (incl. the 0.646 closest fit)."""
+    return np.load(FRAGILE, allow_pickle=True).item()
+
+
+def test_fragile_designs_are_found_and_never_kept():
+    data = _fragile_fixture()
+    designs = data["fragile"] + data["healthy"]
+    F = np.column_stack(evaluate(designs, target_curve(K3)))
+    flags = fragile(designs, F, K3, safe_limits(REFERENCE_POINTS[K3]))
+    assert flags.tolist() == [True] * 3 + [False] * 3
+    kept = {_design_key(d) for d in select(designs, K3).designs}
+    assert not kept & {_design_key(d) for d in data["fragile"]}
+    assert {_design_key(d) for d in data["healthy"]} <= kept
 
 
 # --- Updating best.npy ------------------------------------------------------------
@@ -283,3 +321,22 @@ def test_merge_cli_dry_run_and_fresh_confirmation(best, monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", lambda prompt: "no")
     assert merge.main(["--fresh", str(best)]) == 1  # not confirmed: cancelled
     assert _bytes(best) == before
+
+
+def test_recheck_drops_fragile_designs_and_keeps_the_history(best):
+    """merge.py --recheck: re-select best.npy's own designs; fragile ones go even
+    though the score falls a little; the history gets one more entry."""
+    sub = load(best)
+    sub["Problem 3"] = list(sub["Problem 3"]) + _fragile_fixture()["fragile"]
+    save(sub, best)
+    record_path = best.with_name("best_score.json")
+    record = json.loads(record_path.read_text())
+    entries_before = len(record.get("history", []))
+    result = recheck_best(best_path=best)
+    assert result.improved and result.backup is not None
+    left = {_design_key(d) for d in load(best)["Problem 3"]}
+    assert not left & {_design_key(d) for d in _fragile_fixture()["fragile"]}
+    history = json.loads(record_path.read_text())["history"]
+    assert len(history) == entries_before + 1
+    assert history[-1]["source"] == "merge.py --recheck"
+    assert recheck_best(best_path=best).improved is False  # nothing left to drop

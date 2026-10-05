@@ -13,8 +13,10 @@ from linkopt.submission import TARGET_CURVES_PATH
 from LINKS.CP import evaluate_submission
 
 RECORD_PATH = BEST_PATH.with_name("best_score.json")
-# Scores come from float32 JAX math, so allow for tiny platform differences (macOS vs CI Linux).
-REL_TOL = 1e-4
+# Scores come from float32 JAX math, so allow for platform differences (macOS vs CI
+# Linux): ~3e-5 for most files, up to ~7e-4 once best.npy held designs whose score is
+# sensitive to rounding (see archive.fragile). 1e-3 still catches a worse file.
+REL_TOL = 1e-3
 
 
 def test_best_submission_is_not_worse_than_recorded():

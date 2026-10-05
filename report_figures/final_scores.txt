@@ -1,0 +1,6 @@
+                                 hypervolume normalized    box  covered
+Kangaroo 1 (Round Body)                4.404      2.202    7.5    58.7%
+Kangaroo 2 (No Ears, No Tail)          6.425      4.283   12.0    53.5%
+Kangaroo 3 (Full Meme)                19.774      1.977   35.0    56.5%
+grader's overall (mean of normalized): 2.8208
+leaderboard (sum of hypervolumes): 30.602
