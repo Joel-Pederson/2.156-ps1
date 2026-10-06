@@ -173,7 +173,7 @@ def test_refine_material_returns_cheaper_designs():
 def test_refine_material_keeps_nothing_that_got_worse():
     """A design that couldn't be improved is left out, not returned unchanged."""
     designs = _k2_designs()
-    cheaper, F = refine_material(designs, 1, preset("quick", grad_steps=100))
+    _, F = refine_material(designs, 1, preset("quick", grad_steps=100))
     before = np.column_stack(evaluate(designs, target_curve(1)))
     for row in F:  # no returned design may be as expensive as the cheapest input
         assert row[1] < before[:, 1].max()
