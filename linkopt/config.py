@@ -57,6 +57,15 @@ class Config:
     # positions (basin hopping). For "adam", step_sizes are learning rates.
     refine_method: str = "plain"
 
+    # Positions-only GA (position_ga.py): a second, smaller GA that fine-tunes the
+    # joint positions of shapes already in best.npy. Only used by a "position_ga" run.
+    position_shapes: int = 15  # how many of best.npy's shapes to fine-tune
+    # Rank best.npy's designs by lowest distance and keep only the first design of each
+    # distinct shape. False (the default) takes the lowest-distance designs as they
+    # come, which for Kangaroo 2 means mostly the same shape over and over: 11 of its
+    # top 15 are one 6-joint, 7-edge topology at slightly different positions.
+    position_dedup: bool = False
+
     # Execution.
     # Parallel worker processes (0 = run every job in this process, one at a time:
     # slower, but the debugger can step into it).
@@ -82,7 +91,7 @@ class Config:
             values = getattr(self, name)
             if len(set(values)) != len(values):
                 raise ValueError(f"{name} lists a value twice: {values}")
-        for name in ("n_start", "pop_size", "n_gen"):
+        for name in ("n_start", "pop_size", "n_gen", "position_shapes"):
             if getattr(self, name) < 1:
                 raise ValueError(
                     f"{name} must be at least 1, got {getattr(self, name)}"

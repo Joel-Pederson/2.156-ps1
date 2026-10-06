@@ -30,6 +30,7 @@ def test_preset_overrides():
         {"mutation_prob": 1.5},
         {"refine_method": "newton"},  # only plain / adam / basin
         {"refine_method": ""},
+        {"position_shapes": 0},  # --position-ga must fine-tune at least one shape
         {"step_sizes": ()},
         {"step_sizes": (4e-4, 0)},
     ],
@@ -45,6 +46,16 @@ def test_refine_method_defaults_to_todays_behavior():
     for cfg in PRESETS.values():
         assert cfg.refine_method == "plain"
     assert preset("quick", refine_method="adam").refine_method == "adam"
+
+
+def test_position_ga_settings_default_to_todays_behavior():
+    """The positions-only GA is opt-in: a run that doesn't ask for it is unchanged."""
+    assert Config().position_shapes == 15
+    assert Config().position_dedup is False
+    for cfg in PRESETS.values():
+        assert cfg.position_shapes == 15 and cfg.position_dedup is False
+    assert preset("quick", position_shapes=3).position_shapes == 3
+    assert preset("quick", position_dedup=True).position_dedup is True
 
 
 def test_unknown_preset_or_setting_is_rejected():

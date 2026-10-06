@@ -39,6 +39,8 @@ import linkopt  # noqa: F401  (pins JAX to the CPU before LINKS imports it)
 from linkopt import experiments, pipeline
 from linkopt.archive import BEST_PATH, ROOT, RUNS_DIR
 from linkopt.config import REFINE_METHODS, Config, preset
+from linkopt.position_ga import rank_shapes, shape_key
+from linkopt.submission import problem_key
 
 SETTING_FLAGS = {  # command-line flag -> Config field, for the simple settings
     "n_start": int,
@@ -75,6 +77,9 @@ RESUME_KEEPS = [
     "refine_method",
     "sweep",
     "refine_best",
+    "position_ga",
+    "position_shapes",
+    "position_dedup",
     "no_update_best",
 ]
 # Files runs themselves change: they don't make the code's git commit "-dirty".
@@ -160,6 +165,21 @@ def parse_args(argv):
     parser.add_argument(
         "--refine-best", action="store_true", help="also refine best.npy's designs"
     )
+    # Kept out of SETTING_FLAGS for the same reason as --refine-method above.
+    parser.add_argument(
+        "--position-ga",
+        action="store_true",
+        help="instead of the mixed GA, fine-tune the joint positions of best.npy's "
+        "shapes (one GA per shape per seed)",
+    )
+    parser.add_argument(
+        "--position-shapes", type=int, help="how many shapes to fine-tune (default 15)"
+    )
+    parser.add_argument(
+        "--position-dedup",
+        action="store_true",
+        help="fine-tune only the best design of each distinct shape",
+    )
     parser.add_argument(
         "--no-update-best", action="store_true", help="don't touch best.npy"
     )
@@ -193,6 +213,10 @@ def config_from_args(args) -> Config:
         overrides["step_sizes"] = tuple(args.step_sizes)
     if args.refine_method is not None:
         overrides["refine_method"] = args.refine_method
+    if args.position_shapes is not None:
+        overrides["position_shapes"] = args.position_shapes
+    if args.position_dedup:
+        overrides["position_dedup"] = True
     if args.workers is not None:
         overrides["n_workers"] = args.workers
     return preset(args.preset or "quick", **overrides)
@@ -225,6 +249,8 @@ def main(argv=None) -> int:
             cfg = Config(**saved["config"])
             sweep = tuple((n, tuple(v)) for n, v in saved.get("sweep", {}).items())
             refine_best, update = saved["refine_best"], saved["update_best"]
+            # .get: run folders made before --position-ga existed have no such key.
+            position_ga = saved.get("position_ga", False)
             if args.workers is not None:  # the only thing a resume may change
                 cfg = replace(cfg, n_workers=args.workers)
             if not pipeline.header_matches(run_dir / "jobs.csv", pipeline.JOB_COLUMNS):
@@ -242,8 +268,31 @@ def main(argv=None) -> int:
                         f"{name} is set by both {flag} and --sweep; use one"
                     )
             refine_best, update = args.refine_best, not args.no_update_best
+            position_ga = args.position_ga
             run_dir = Path(args.runs_dir) / started.strftime("%Y%m%d-%H%M%S")
-        jobs = pipeline.make_jobs(cfg, refine_best=refine_best, sweep=sweep)
+        # best.npy is needed here, not later: a position_ga job is identified by which
+        # of best.npy's designs it fine-tunes, so the shapes are ranked once in this
+        # process and each job carries just an index and the joint count to expect.
+        best = pipeline.load_best(args.best) if (refine_best or position_ga) else None
+        position_shapes = None
+        if position_ga:
+            if best is None:
+                raise ValueError(f"--position-ga needs {args.best}, which doesn't exist")
+            position_shapes = {}
+            for target in cfg.targets:
+                pool = list(best[problem_key(target)])
+                chosen = rank_shapes(
+                    pool, target, cfg.position_shapes, cfg.position_dedup
+                )
+                position_shapes[target] = [
+                    (i, len(pool[i]["x0"]), shape_key(pool[i])) for i in chosen
+                ]
+        jobs = pipeline.make_jobs(
+            cfg,
+            refine_best=refine_best,
+            sweep=sweep,
+            position_shapes=position_shapes,
+        )
     except ValueError as e:
         print(f"invalid settings: {e}")
         return 2
@@ -257,12 +306,27 @@ def main(argv=None) -> int:
     already = pipeline.finished_job_ids(run_dir) if args.resume else set()
     todo = [j for j in jobs if j.job_id not in already]
     n_ga = sum(j.kind == "ga" for j in jobs)
+    n_pos = sum(j.kind == "position_ga" for j in jobs)
     swept = "".join(f" x {len(values)} {name}" for name, values in sweep)
     print(
         f"{len(cfg.targets)} kangaroo(s) x {len(cfg.n_joints)} size(s) x {len(cfg.seeds)} "
         f"seed(s){swept} = {n_ga} GA jobs"
-        + (f" + {len(jobs) - n_ga} refine-best jobs" if refine_best else "")
+        + (f" + {n_pos} position-GA jobs" if n_pos else "")
+        + (
+            f" + {len(jobs) - n_ga - n_pos} refine-best jobs"
+            if refine_best
+            else ""
+        )
     )
+    if position_shapes:
+        for target, shapes in sorted(position_shapes.items()):
+            asked = cfg.position_shapes
+            how = "distinct shapes" if cfg.position_dedup else "lowest-distance designs"
+            clamped = f" (asked for {asked})" if len(shapes) < asked else ""
+            print(
+                f"  Kangaroo {target + 1}: fine-tuning {len(shapes)} {how}{clamped}: "
+                + ", ".join(f"#{i} ({n}j)" for i, n, _ in shapes)
+            )
     if already:
         print(
             f"resuming {run_dir}: {len(already)} jobs already done, {len(todo)} to run"
@@ -287,6 +351,7 @@ def main(argv=None) -> int:
                     "config": asdict(cfg),  # swept settings: see "sweep"
                     "sweep": {name: list(values) for name, values in sweep},
                     "refine_best": refine_best,
+                    "position_ga": position_ga,
                     "update_best": update,
                     "command": command,
                     "git_commit": commit,
@@ -335,7 +400,6 @@ def main(argv=None) -> int:
                 f"it's still in {run_dir / 'jobs.csv'}"
             )
 
-    best = pipeline.load_best(args.best) if refine_best else None
     stopped = False
     try:
         pipeline.run_jobs(
