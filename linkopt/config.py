@@ -56,6 +56,11 @@ class Config:
     # notebook's, does best on GA designs; the baseline's Kangaroo 1 designs only
     # improve with smaller steps, 0.43 -> 1.07 hypervolume at 3e-5).
     step_sizes: tuple[float, ...] = (4e-4, 1e-4, 3e-5)
+    # Also refine each design downhill in MATERIAL, and submit that cheaper version
+    # alongside the more accurate one (see refine.refine_material). Refinement
+    # otherwise only ever makes designs more accurate, so nothing fills the cheap end
+    # of the front. Costs roughly another refinement pass per job.
+    refine_material: bool = False
 
     # Execution.
     # Parallel worker processes (0 = run every job in this process, one at a time:

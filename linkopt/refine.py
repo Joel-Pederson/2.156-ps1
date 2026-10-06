@@ -150,21 +150,72 @@ def refine(designs, target, cfg: Config, margin=LIMIT_MARGIN) -> RefineResult:
     )
 
 
-def _descend(mechs, curve, limits, n_steps, step_size):
+def refine_material(designs, target, cfg: Config, margin=LIMIT_MARGIN) -> list:
+    """Cheaper versions of `designs`: the same walk downhill, but following the
+    material gradient instead of the distance gradient.
+
+    `refine` makes each design more accurate, which moves it towards the front's
+    low-distance end. Nothing moves designs the other way, so the cheap end is only
+    ever reached by whatever the GA happened to find. The hypervolume is the area
+    under the whole staircase, both ends included, so each design is also walked
+    downhill in material and the cheaper version submitted alongside the accurate
+    one: one design in, up to two designs out, at opposite ends of the front.
+
+    Returns (designs, F): only the versions that really did get cheaper and stayed
+    inside the limits by the grader's scorer (not DifferentiableTools', which differs
+    slightly), as mechanism dicts, with their [distance, material] rows. A design
+    that didn't improve is left out rather than submitted as a duplicate of itself.
+    F is returned because it is already computed here: scoring it again would be
+    another LINKS call per job.
+    """
+    curve = target_curve(target)
+    limits = safe_limits(REFERENCE_POINTS[target], margin)
+    n = len(designs)
+    if n == 0 or cfg.grad_steps == 0:
+        return [], np.empty((0, 2))
+
+    # Same padding and step-size loop as refine, but each design keeps the position
+    # with the lowest MATERIAL rather than the lowest distance.
+    batch = list(designs) + [designs[0]] * (batch_size_for(n) - n)
+    best_x = [np.array(d["x0"], dtype=float) for d in designs]
+    best_material = np.full(n, np.inf)
+    moved = np.zeros(n, dtype=bool)
+    for size in cfg.step_sizes:
+        _, x, at_step, material = _descend(
+            batch, curve, limits, cfg.grad_steps, size, objective="material"
+        )
+        for i in np.where((material[:n] < best_material) & (at_step[:n] > 0))[0]:
+            best_x[i], best_material[i], moved[i] = x[i], material[i], True
+
+    cheaper = [dict(d, x0=x0) for d, x0 in zip(designs, best_x)]
+    F_before, F_after = _scores(designs, curve), _scores(cheaper, curve)
+    # Keep only the ones the grader agrees are inside the limits and actually cheaper.
+    keep = np.where(
+        moved & (F_after <= limits).all(axis=1) & (F_after[:, 1] < F_before[:, 1])
+    )[0]
+    return [cheaper[i] for i in keep], F_after[keep]
+
+
+def _descend(mechs, curve, limits, n_steps, step_size, objective="distance"):
     """The advanced notebook's gradient loop, on one batch of mechanisms, plus a
     record of each design's best position.
 
     Repeats: score every design; any design now outside `limits` goes back to where
     it was one step ago and stops; every other design moves each joint one small
-    step downhill in distance (x0 minus step_size times the distance gradient).
+    step downhill in `objective` (x0 minus step_size times that objective's gradient).
     After the last step, the designs are checked once more (the notebook skips this).
 
-    Returns (x, best_x, best_step, best_distance):
+    objective is "distance" (the notebook's, and what refine uses) or "material"
+    (refine_material's): DifferentiableTools returns a gradient for each, and the
+    only difference is which one is followed and which one "best" is measured by.
+    A design must stay inside BOTH limits either way.
+
+    Returns (x, best_x, best_step, best_score):
         x              each design's final positions (the notebook's result)
-        best_x         each design's best positions: lowest distance seen while
+        best_x         each design's best positions: lowest `objective` seen while
                        inside the limits (the start counts, so it's never worse)
         best_step      the step at which that best was reached (0 = the start)
-        best_distance  the distance at that best (inf if never inside the limits)
+        best_score     the `objective` at that best (inf if never inside the limits)
     """
     edges = [m["edges"] for m in mechs]
     fixed = [m["fixed_joints"] for m in mechs]
@@ -175,20 +226,25 @@ def _descend(mechs, curve, limits, n_steps, step_size):
     x_last = list(x)  # positions one step ago
     done = np.zeros(len(x), dtype=bool)  # stopped designs
     best_x = list(x)
-    best_distance = np.full(len(x), np.inf)
+    best_score = np.full(len(x), np.inf)
     best_step = np.zeros(len(x), dtype=int)
 
     for step in range(n_steps + 1):  # n_steps moves, n_steps + 1 checks
-        # Score every design and get its gradients (one batched call). The material
-        # gradient isn't used yet: this refinement only reduces distance.
-        distance, material, distance_grad, _ = gradient_tools()(
+        # Score every design and get both gradients (one batched call).
+        distance, material, distance_grad, material_grad = gradient_tools()(
             x, edges, fixed, motors, curve, list(targets)
         )
         inside = (distance <= limits[0]) & (material <= limits[1])
+        # The one being minimized, and the direction that reduces it.
+        score, grad = (
+            (distance, distance_grad)
+            if objective == "distance"
+            else (material, material_grad)
+        )
 
-        # Remember each design's best position so far (inside, lowest distance).
-        for i in np.where(inside & (distance < best_distance))[0]:
-            best_x[i], best_distance[i], best_step[i] = x[i], distance[i], step
+        # Remember each design's best position so far (inside, lowest `objective`).
+        for i in np.where(inside & (score < best_score))[0]:
+            best_x[i], best_score[i], best_step[i] = x[i], score[i], step
 
         # Designs outside the limits: go back one step, and stop (the notebook's rule).
         for i in np.where(~inside)[0]:
@@ -201,9 +257,9 @@ def _descend(mechs, curve, limits, n_steps, step_size):
         # Every design still going moves one step downhill.
         x_last = list(x)
         for i in np.where(~done)[0]:
-            x[i] = x[i] - step_size * distance_grad[i]
+            x[i] = x[i] - step_size * grad[i]
 
-    return x, best_x, best_step, best_distance
+    return x, best_x, best_step, best_score
 
 
 def _scores(mechs, curve) -> np.ndarray:

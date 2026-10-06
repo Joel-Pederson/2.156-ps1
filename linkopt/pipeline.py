@@ -35,7 +35,7 @@ import numpy as np
 from linkopt.archive import hypervolume, select, update_best
 from linkopt.config import Config
 from linkopt.ga import run_ga
-from linkopt.refine import refine
+from linkopt.refine import refine, refine_material
 from linkopt.submission import build_submission, load, problem_key, save
 from LINKS.CP import N_PROBLEMS, SCORE_NORMALIZERS
 
@@ -215,6 +215,7 @@ def run_job(job: Job, cfg: Config, best_designs=None) -> JobResult:
             designs = refined.moved()
             hv_ga = hypervolume(refined.F_before, job.target)
             F_all = np.vstack([refined.F_before, refined.F_after[refined.steps > 0]])
+            source = best_designs or []
         else:
             ga = run_ga(job.target, job.n_joints, job.seed, cfg)
             seconds_ga = ga.seconds
@@ -222,6 +223,13 @@ def run_job(job: Job, cfg: Config, best_designs=None) -> JobResult:
             designs = ga.designs + refined.moved()  # keep both versions
             hv_ga = hypervolume(ga.F, job.target)
             F_all = np.vstack([ga.F, refined.F_after[refined.steps > 0]])
+            source = ga.designs
+        if cfg.refine_material:
+            # The same designs walked downhill in material instead: the cheap end of
+            # the front, which refining for distance alone never reaches.
+            cheaper, F_cheaper = refine_material(source, job.target, cfg)
+            designs += cheaper
+            F_all = np.vstack([F_all, F_cheaper])
         return JobResult(
             job=job,
             designs=designs,

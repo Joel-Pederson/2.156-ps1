@@ -78,6 +78,7 @@ RESUME_KEEPS = [
     "step_sizes",
     "sweep",
     "refine_best",
+    "refine_material",
     "no_update_best",
 ]
 # Files runs themselves change: they don't make the code's git commit "-dirty".
@@ -160,6 +161,11 @@ def parse_args(argv):
         "--refine-best", action="store_true", help="also refine best.npy's designs"
     )
     parser.add_argument(
+        "--refine-material",
+        action="store_true",
+        help="also refine each design for less material (the front's cheap end)",
+    )
+    parser.add_argument(
         "--no-update-best", action="store_true", help="don't touch best.npy"
     )
     parser.add_argument(
@@ -192,6 +198,8 @@ def config_from_args(args) -> Config:
         overrides["step_sizes"] = tuple(args.step_sizes)
     if args.workers is not None:
         overrides["n_workers"] = args.workers
+    if args.refine_material:
+        overrides["refine_material"] = True
     return preset(args.preset or "quick", **overrides)
 
 

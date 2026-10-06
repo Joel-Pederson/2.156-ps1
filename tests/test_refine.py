@@ -11,7 +11,7 @@ from pymoo.indicators.hv import HV
 from linkopt.config import preset
 from linkopt.ga import target_curve
 from linkopt.problem import LIMIT_MARGIN, batch_size_for, evaluate, safe_limits
-from linkopt.refine import _descend, gradient_tools, refine
+from linkopt.refine import _descend, gradient_tools, refine, refine_material
 from linkopt.submission import build_submission, load, save
 from LINKS.CP import REFERENCE_POINTS
 
@@ -145,3 +145,51 @@ def test_never_worse_even_when_the_step_overshoots(designs):
     Each design must still come back at its best position, never worse."""
     r = refine(designs, TARGET, preset("quick", grad_steps=STEPS, step_sizes=(4e-4,)))
     assert (r.F_after[:, 0] <= r.F_before[:, 0] * (1 + 1e-5)).all()
+
+
+# --- Refining for material (cfg.refine_material) ----------------------------------
+
+
+def _k2_designs(n=6):
+    """A few of best.npy's Kangaroo 2 designs to refine."""
+    from linkopt.submission import load
+
+    return list(load(ROOT / "submissions" / "best.npy")["Problem 2"])[:n]
+
+
+def test_refine_material_returns_cheaper_designs():
+    """Every design handed back must really use less material than it started with,
+    and still be inside the limits by the grader's scorer."""
+    designs = _k2_designs()
+    cheaper, F = refine_material(designs, 1, preset("quick", grad_steps=100))
+    assert len(cheaper) == len(F)
+    if cheaper:
+        before = np.column_stack(evaluate(designs, target_curve(1)))
+        limits = safe_limits(REFERENCE_POINTS[1])
+        assert (F <= limits).all()
+        assert F[:, 1].min() < before[:, 1].max()
+
+
+def test_refine_material_keeps_nothing_that_got_worse():
+    """A design that couldn't be improved is left out, not returned unchanged."""
+    designs = _k2_designs()
+    cheaper, F = refine_material(designs, 1, preset("quick", grad_steps=100))
+    before = np.column_stack(evaluate(designs, target_curve(1)))
+    for row in F:  # no returned design may be as expensive as the cheapest input
+        assert row[1] < before[:, 1].max()
+
+
+def test_refine_material_no_steps_returns_nothing():
+    designs = _k2_designs()
+    assert refine_material(designs, 1, preset("quick", grad_steps=0))[0] == []
+    assert refine_material([], 1, preset("quick"))[0] == []
+
+
+def test_refine_for_distance_is_unchanged_by_the_new_objective():
+    """The default path must still walk downhill in distance exactly as before."""
+    designs = _k2_designs()
+    cfg = preset("quick", grad_steps=50)
+    a = refine(designs, 1, cfg)
+    b = refine(designs, 1, cfg)
+    assert np.array_equal(a.F_after, b.F_after)
+    assert (a.F_after[:, 0] <= a.F_before[:, 0] + 1e-9).all()
