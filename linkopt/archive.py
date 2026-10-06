@@ -285,6 +285,9 @@ class UpdateResult:
     scores: dict  # evaluate_submission's full result for the candidate
     selections: dict  # target -> Selection (what was kept and why)
     backup: Path | None  # where the previous best.npy was copied, if replaced
+    # evaluate_submission's full result for the current best.npy, so a caller can
+    # compare per problem and not just overall ({} if there was no best.npy).
+    old_scores: dict = field(default_factory=dict)
 
 
 def update_best(
@@ -316,13 +319,14 @@ def update_best(
         # The current best scored now, on this computer, not the recorded score: that
         # may come from another computer (CI's Linux scores the same file ~3e-5
         # differently than a Mac), and the difference would look like an improvement.
-        old_score = (
-            evaluate_submission(str(best_path), str(TARGET_CURVES_PATH))[
-                "Overall Score"
-            ]
+        # Keep the whole result, not just the overall: merge.py --per-problem reports
+        # each kangaroo's hypervolume before and after, and it is already computed here.
+        old_scores = (
+            evaluate_submission(str(best_path), str(TARGET_CURVES_PATH))
             if current is not None
-            else 0.0
+            else {}
         )
+        old_score = old_scores.get("Overall Score", 0.0)
 
         # Pool: the current best's designs (unless fresh) plus the new ones.
         selections = {}
@@ -356,6 +360,7 @@ def update_best(
         scores=scores,
         selections=selections,
         backup=backup,
+        old_scores=old_scores,
     )
 
 
@@ -372,9 +377,8 @@ def recheck_best(best_path=BEST_PATH, source="merge.py --recheck", write=True):
     with _locked(runs_dir / ".best.lock"):
         current = load(best_path)
         record = json.loads(record_path.read_text()) if record_path.exists() else {}
-        old_score = evaluate_submission(str(best_path), str(TARGET_CURVES_PATH))[
-            "Overall Score"
-        ]
+        old_scores = evaluate_submission(str(best_path), str(TARGET_CURVES_PATH))
+        old_score = old_scores["Overall Score"]
         selections = {
             t: select(list(current[problem_key(t)]), t) for t in range(N_PROBLEMS)
         }
@@ -400,6 +404,7 @@ def recheck_best(best_path=BEST_PATH, source="merge.py --recheck", write=True):
         scores=scores,
         selections=selections,
         backup=backup,
+        old_scores=old_scores,
     )
 
 

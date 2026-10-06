@@ -35,6 +35,7 @@ import numpy as np
 from linkopt.archive import hypervolume, select, update_best
 from linkopt.config import Config
 from linkopt.ga import run_ga
+from linkopt.position_ga import run_position_ga
 from linkopt.refine import refine
 from linkopt.submission import build_submission, load, problem_key, save
 from LINKS.CP import N_PROBLEMS, SCORE_NORMALIZERS
@@ -84,28 +85,52 @@ JOB_COLUMNS = [  # one row per job in jobs.csv (and in the experiments_jobs.csv 
 
 @dataclass(frozen=True)
 class Job:
-    """One unit of work. kind = "ga" (GA, then refine its designs) or
-    "refine_best" (refine the designs already in best.npy; no GA)."""
+    """One unit of work. kind is one of
+    "ga"           the mixed GA on random mechanisms, then refine its designs
+    "refine_best"  refine the designs already in best.npy; no GA
+    "position_ga"  the positions-only GA on one of best.npy's shapes, then refine
+    """
 
     kind: str
     target: int  # kangaroo (0 = Kangaroo 1)
-    n_joints: int = 0  # mechanism size (ga jobs)
-    seed: int = 0  # random seed (ga jobs)
+    n_joints: int = 0  # mechanism size (ga and position_ga jobs)
+    seed: int = 0  # random seed (ga and position_ga jobs)
     # This job's swept values, as (name, value) pairs, e.g. (("mutation_prob", 0.3),).
     # Empty = the run's settings as they are.
     settings: tuple = ()
+    # Which of best.npy's designs to fine-tune, as a position in that kangaroo's list
+    # (position_ga jobs only; -1 elsewhere). run.py ranks the shapes and fills this in.
+    # New fields go last: tests and convergence.py build Jobs positionally.
+    shape: int = -1
+    # position_ga.shape_key of the design `shape` pointed at when the run was planned.
+    # Pooling rebuilds best.npy's lists, so the index alone can come to mean a
+    # different design; the worker compares this and fails rather than fine-tuning
+    # the wrong shape and reporting a believable improvement for it.
+    shape_key: str = ""
 
     @property
     def job_id(self) -> str:
-        """Unique within a run, and a safe filename: k2-7j-s1, k2-7j-s1-mut0.3."""
+        """Unique within a run, and a safe filename: k2-7j-s1, k2-7j-s1-mut0.3.
+
+        A position_ga job gets its own prefix: without one it would collide with the
+        plain ga job for the same kangaroo, size and seed, and since each job is saved
+        as jobs/<job_id>.npy the two kinds would overwrite each other's designs.
+        """
         tags = "".join(f"-{SWEEPABLE[n]}{format_value(v)}" for n, v in self.settings)
         if self.kind == "refine_best":
             return f"k{self.target + 1}-refine-best{tags}"
+        if self.kind == "position_ga":
+            return f"k{self.target + 1}-pos-sh{self.shape}-s{self.seed}{tags}"
         return f"k{self.target + 1}-{self.n_joints}j-s{self.seed}{tags}"
 
     def describe(self) -> str:
         if self.kind == "refine_best":
             text = f"Kangaroo {self.target + 1}, refining the current best"
+        elif self.kind == "position_ga":
+            text = (
+                f"Kangaroo {self.target + 1}, positions of best.npy shape "
+                f"{self.shape} ({self.n_joints} joints), seed {self.seed}"
+            )
         else:
             text = (
                 f"Kangaroo {self.target + 1}, {self.n_joints} joints, seed {self.seed}"
@@ -129,7 +154,9 @@ def format_sweep(sweep) -> str:
     )
 
 
-def make_jobs(cfg: Config, refine_best: bool = False, sweep=()) -> list[Job]:
+def make_jobs(
+    cfg: Config, refine_best: bool = False, sweep=(), position_shapes=None
+) -> list[Job]:
     """Every (seed, kangaroo, size, swept values) combination, seeds outermost.
 
     Seeds outermost: a run stopped halfway has whole replicates (every kangaroo,
@@ -139,6 +166,11 @@ def make_jobs(cfg: Config, refine_best: bool = False, sweep=()) -> list[Job]:
     sweep: ((name, (value, value, ...)), ...), e.g. (("mutation_prob", (0.3, 0.5)),).
     Every combination is checked here (built as a Config), so a bad value stops
     the run before anything starts.
+
+    position_shapes: {target: [(index in best.npy, joint count, shape fingerprint),
+    ...]}, or None for no positions-only jobs. run.py ranks the shapes before calling this, so
+    the index and joint count are decided once in the parent process rather than
+    re-derived in every worker. Given, it replaces the mixed-GA jobs (see below).
     """
     names = [name for name, _ in sweep]
     for name, values in sweep:
@@ -164,13 +196,20 @@ def make_jobs(cfg: Config, refine_best: bool = False, sweep=()) -> list[Job]:
                 f"sweep {format_sweep((n, (v,)) for n, v in combo)}: {e}"
             ) from None
 
-    jobs = [
-        Job("ga", t, n, s, combo)
-        for s in cfg.seeds
-        for t in cfg.targets
-        for n in cfg.n_joints
-        for combo in combos
-    ]
+    # position_shapes replaces the mixed GA rather than adding to it: a positions-only
+    # run spends its whole budget fine-tuning known shapes, and cfg.n_joints has no
+    # meaning there (each job's size comes from the design it was given).
+    jobs = (
+        []
+        if position_shapes
+        else [
+            Job("ga", t, n, s, combo)
+            for s in cfg.seeds
+            for t in cfg.targets
+            for n in cfg.n_joints
+            for combo in combos
+        ]
+    )
     if refine_best:
         # No GA, so only the swept refinement settings (grad_steps) apply: one
         # refine-best job per kangaroo per value of those.
@@ -181,6 +220,15 @@ def make_jobs(cfg: Config, refine_best: bool = False, sweep=()) -> list[Job]:
             Job("refine_best", t, settings=c)
             for t in cfg.targets
             for c in refine_combos
+        ]
+    if position_shapes:
+        # One job per (seed, kangaroo, shape, swept values). Seeds outermost here too.
+        jobs += [
+            Job("position_ga", t, n_joints, s, combo, shape=i, shape_key=key)
+            for s in cfg.seeds
+            for t, shapes in sorted(position_shapes.items())
+            for i, n_joints, key in shapes
+            for combo in combos
         ]
     return jobs
 
@@ -216,7 +264,28 @@ def run_job(job: Job, cfg: Config, best_designs=None) -> JobResult:
             hv_ga = hypervolume(refined.F_before, job.target)
             F_all = np.vstack([refined.F_before, refined.F_after[refined.steps > 0]])
         else:
-            ga = run_ga(job.target, job.n_joints, job.seed, cfg)
+            if job.kind == "position_ga":
+                # A GA over one best.npy design's joint positions only. best_designs is
+                # that kangaroo's best.npy list; job.shape says which design to take.
+                if not best_designs:
+                    raise ValueError(
+                        f"{job.job_id} needs best.npy's Kangaroo {job.target + 1} "
+                        "designs, but none were given"
+                    )
+                if not 0 <= job.shape < len(best_designs):
+                    raise ValueError(
+                        f"{job.job_id}: shape {job.shape} is outside best.npy's "
+                        f"{len(best_designs)} Kangaroo {job.target + 1} designs"
+                    )
+                ga = run_position_ga(
+                    job.target,
+                    best_designs[job.shape],
+                    job.seed,
+                    cfg,
+                    expect_shape=job.shape_key or None,
+                )
+            else:
+                ga = run_ga(job.target, job.n_joints, job.seed, cfg)
             seconds_ga = ga.seconds
             refined = refine(ga.designs, job.target, cfg)
             designs = ga.designs + refined.moved()  # keep both versions
@@ -259,7 +328,9 @@ def run_jobs(jobs, cfg, run_dir, workers, best=None, on_result=None):
     (run_dir / "jobs").mkdir(parents=True, exist_ok=True)
 
     def best_for(job):
-        if job.kind != "refine_best" or best is None:
+        # Both kinds that read best.npy get that kangaroo's whole list: refine_best
+        # refines all of it, position_ga picks out job.shape.
+        if job.kind not in ("refine_best", "position_ga") or best is None:
             return None
         return list(best[problem_key(job.target)])
 
@@ -325,7 +396,10 @@ def job_row(result: JobResult, cfg: Config) -> dict:
     """
     j = result.job
     ran_with = j.config(cfg)
-    ga = j.kind == "ga"
+    # position_ga runs a GA too, so its n_joints / seed / pop_size / n_gen columns are
+    # real. Deliberately reusing the existing columns: adding one would change
+    # JOB_COLUMNS, which experiments.check() requires to match the committed log exactly.
+    ga = j.kind in ("ga", "position_ga")
     settings = {
         name: format_value(getattr(ran_with, name))
         if ga or name not in GA_SETTINGS
@@ -459,7 +533,15 @@ def load_best(best_path):
 # so beyond 3 workers the 8 performance cores are full and there's no more speedup.
 # Real times vary with mechanism size; this is for planning.
 SECONDS_PER_GA_EVAL = 2.5e-3
+# The positions-only GA is much cheaper per design: its mechanisms are small (best.npy's
+# Kangaroo 2 shapes are 5-7 joints) and a pop-100 generation pads to one batch of 104.
+# Measured on an M4: 48.5 ms per generation of 100, i.e. 0.485 ms per design.
+SECONDS_PER_POSITION_EVAL = 0.5e-3
 SECONDS_PER_REFINE_STEP = 0.012
+# SECONDS_PER_REFINE_STEP is for the ~15-design front a GA job usually produces. A
+# position GA's front can be most of its population, and refinement costs roughly per
+# design: 64 designs x 200 steps x 3 sizes took 31.8 s, i.e. 0.83 ms per design-step.
+SECONDS_PER_REFINE_STEP_PER_DESIGN = 0.83e-3
 SPEEDUP_PER_EXTRA_WORKER = 0.5  # 3 workers ~ 2x faster than 1
 MAX_USEFUL_WORKERS = 3
 STARTUP_SECONDS = 10  # starting workers (each compiles JAX) + pooling at the end
@@ -470,7 +552,13 @@ def estimate_seconds(jobs, cfg: Config, workers: int) -> float:
     total = 0.0
     for job in jobs:
         c = job.config(cfg)  # a swept job may have more generations, steps, ...
-        total += c.grad_steps * len(c.step_sizes) * SECONDS_PER_REFINE_STEP
+        refine_steps = c.grad_steps * len(c.step_sizes)
+        if job.kind == "position_ga":
+            # No n_start: generation 1 is the design itself plus noisy copies of it.
+            total += c.pop_size * c.n_gen * SECONDS_PER_POSITION_EVAL
+            total += refine_steps * c.pop_size * SECONDS_PER_REFINE_STEP_PER_DESIGN
+            continue
+        total += refine_steps * SECONDS_PER_REFINE_STEP
         if job.kind == "ga":
             total += (c.n_start + c.pop_size * c.n_gen) * SECONDS_PER_GA_EVAL
     useful = min(max(workers, 1), MAX_USEFUL_WORKERS, max(len(jobs), 1))

@@ -17,6 +17,9 @@ from LINKS.CP import MAX_JOINTS, N_PROBLEMS
 
 MIN_JOINTS = 5  # smallest size we've checked MechanismRandomizer can generate
 
+# How the gradient refinement takes each step (see refine.py).
+REFINE_METHODS = ("plain", "adam", "basin")
+
 
 @dataclass(frozen=True)
 class Config:
@@ -48,6 +51,20 @@ class Config:
     # notebook's, does best on GA designs; the baseline's Kangaroo 1 designs only
     # improve with smaller steps, 0.43 -> 1.07 hypervolume at 3e-5).
     step_sizes: tuple[float, ...] = (4e-4, 1e-4, 3e-5)
+    # How each step is taken. "plain" is the notebook's fixed-size step, and what
+    # every run before this setting did; "adam" gives each joint its own step size from
+    # its recent gradient history; "basin" restarts the plain descent from nearby random
+    # positions (basin hopping). For "adam", step_sizes are learning rates.
+    refine_method: str = "plain"
+
+    # Positions-only GA (position_ga.py): a second, smaller GA that fine-tunes the
+    # joint positions of shapes already in best.npy. Only used by a "position_ga" run.
+    position_shapes: int = 15  # how many of best.npy's shapes to fine-tune
+    # Rank best.npy's designs by lowest distance and keep only the first design of each
+    # distinct shape. False (the default) takes the lowest-distance designs as they
+    # come, which for Kangaroo 2 means mostly the same shape over and over: 11 of its
+    # top 15 are one 6-joint, 7-edge topology at slightly different positions.
+    position_dedup: bool = False
 
     # Execution.
     # Parallel worker processes (0 = run every job in this process, one at a time:
@@ -74,7 +91,7 @@ class Config:
             values = getattr(self, name)
             if len(set(values)) != len(values):
                 raise ValueError(f"{name} lists a value twice: {values}")
-        for name in ("n_start", "pop_size", "n_gen"):
+        for name in ("n_start", "pop_size", "n_gen", "position_shapes"):
             if getattr(self, name) < 1:
                 raise ValueError(
                     f"{name} must be at least 1, got {getattr(self, name)}"
@@ -85,6 +102,11 @@ class Config:
             raise ValueError(f"grad_steps must be >= 0, got {self.grad_steps}")
         if not self.step_sizes or any(s <= 0 for s in self.step_sizes):
             raise ValueError(f"step_sizes must be positive, got {self.step_sizes}")
+        if self.refine_method not in REFINE_METHODS:
+            raise ValueError(
+                f"refine_method must be one of {REFINE_METHODS}, "
+                f"got {self.refine_method!r}"
+            )
         if self.mutation_prob is not None and not 0 <= self.mutation_prob <= 1:
             raise ValueError(
                 f"mutation_prob must be in [0, 1], got {self.mutation_prob}"

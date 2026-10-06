@@ -323,6 +323,33 @@ def test_merge_cli_dry_run_and_fresh_confirmation(best, monkeypatch, capsys):
     assert _bytes(best) == before
 
 
+def test_per_problem_is_opt_in_and_shows_each_kangaroo(
+    weakened_best, improving_designs, monkeypatch, capsys
+):
+    """merge.py prints only the overall score, which is the mean of three normalized
+    ones, so a big gain on one kangaroo looks small there. --per-problem says which
+    kangaroo a file actually helped; off, the output is what it always was."""
+    best = weakened_best
+    monkeypatch.setattr(archive, "BEST_PATH", best)
+    monkeypatch.setattr(merge, "BEST_PATH", best)
+    monkeypatch.setattr(
+        merge, "update_best", lambda *a, **k: update_best(*a, best_path=best, **k)
+    )
+    result = update_best(improving_designs, "per-problem", best_path=best, write=False)
+    # update_best already graded the current best.npy; it now keeps the whole result.
+    assert "Score Breakdown" in result.old_scores
+    assert result.old_scores["Overall Score"] == result.old_score
+
+    assert merge.main(["--dry-run", str(best)]) == 0
+    plain = capsys.readouterr().out
+    assert "Problem 2:" in plain and "normalized" not in plain  # today's output
+
+    assert merge.main(["--dry-run", "--per-problem", str(best)]) == 0
+    detailed = capsys.readouterr().out
+    assert detailed.count("normalized") == 3  # one line per kangaroo
+    assert "score:" in detailed  # the overall line is still there
+
+
 def test_recheck_drops_fragile_designs_and_keeps_the_history(best):
     """merge.py --recheck: re-select best.npy's own designs; fragile ones go even
     though the score falls a little; the history gets one more entry."""

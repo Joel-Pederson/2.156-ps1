@@ -31,6 +31,12 @@ def main(argv=None) -> int:
         "--fresh", action="store_true", help="ignore the current best (asks to confirm)"
     )
     parser.add_argument(
+        "--per-problem",
+        action="store_true",
+        help="also show each kangaroo's hypervolume before -> after, not just the "
+        "overall score",
+    )
+    parser.add_argument(
         "--recheck",
         action="store_true",
         help="re-select best.npy's own designs (no files): drops ones select now rejects",
@@ -40,7 +46,7 @@ def main(argv=None) -> int:
         if args.files or args.fresh:
             parser.error("--recheck takes no files and no --fresh")
         result = recheck_best(write=not args.dry_run)
-        _report(result)
+        _report(result, args.per_problem)
         if args.dry_run:
             print("dry run: nothing changed")
         elif result.improved:
@@ -88,7 +94,7 @@ def main(argv=None) -> int:
     )
 
     # 4. Report.
-    _report(result)
+    _report(result, args.per_problem)
     if args.dry_run:
         print("dry run: nothing changed")
     elif result.improved:
@@ -98,8 +104,13 @@ def main(argv=None) -> int:
     return 0
 
 
-def _report(result):
-    """Per kangaroo: designs in, kept, and why the rest were dropped; then the score."""
+def _report(result, per_problem=False):
+    """Per kangaroo: designs in, kept, and why the rest were dropped; then the score.
+
+    per_problem also prints each kangaroo's hypervolume before -> after. The overall
+    score is the mean of the normalized ones, so a big gain on one kangaroo looks small
+    there; this says which kangaroo a pooled file actually helped.
+    """
     for t, sel in result.selections.items():
         c = sel.counts
         print(
@@ -108,9 +119,31 @@ def _report(result):
             f"{c['duplicate']} duplicates, {c.get('fragile', 0)} fragile, "
             f"{c['dominated']} dominated, {c['trimmed']} trimmed)"
         )
+    if per_problem:
+        _report_per_problem(result)
     print(
         f"score: {result.old_score:.4f} (current best) -> {result.new_score:.4f} (pooled)"
     )
+
+
+def _report_per_problem(result):
+    """One line per kangaroo: raw and normalized hypervolume, before -> after."""
+    raw_before = result.old_scores.get("Score Breakdown", {})
+    norm_before = result.old_scores.get("Normalized Score Breakdown", {})
+    raw_after = result.scores.get("Score Breakdown", {})
+    norm_after = result.scores.get("Normalized Score Breakdown", {})
+    for t in range(N_PROBLEMS):
+        key = problem_key(t)
+        # No before at all when there was no best.npy: show the after on its own.
+        if key not in raw_before:
+            print(f"  {key}: {raw_after.get(key, 0.0):.4f} raw (nothing to compare)")
+            continue
+        delta = norm_after.get(key, 0.0) - norm_before[key]
+        print(
+            f"  {key}: {raw_before[key]:.4f} -> {raw_after.get(key, 0.0):.4f} raw"
+            f"  (normalized {norm_before[key]:.4f} -> {norm_after.get(key, 0.0):.4f}, "
+            f"{delta:+.4f})"
+        )
 
 
 if __name__ == "__main__":

@@ -126,6 +126,68 @@ def test_jobs_cover_every_combination():
     assert [j.kind for j in extra] == ["refine_best", "refine_best"]
 
 
+# --- The positions-only GA as a job kind ------------------------------------------
+
+
+def test_position_jobs_replace_the_ga_jobs_and_get_their_own_ids():
+    cfg = preset("quick", targets=(1,), seeds=(0, 1))
+    # {target: [(index in best.npy, joint count, shape fingerprint), ...]}
+    shapes = {1: [(2, 6, "aaaaaaaaaaaa"), (76, 7, "bbbbbbbbbbbb")]}
+    jobs = make_jobs(cfg, position_shapes=shapes)
+    assert [j.kind for j in jobs] == ["position_ga"] * 4  # no mixed-GA jobs at all
+    assert [j.job_id for j in jobs] == [  # seeds outermost, as for ga jobs
+        "k2-pos-sh2-s0",
+        "k2-pos-sh76-s0",
+        "k2-pos-sh2-s1",
+        "k2-pos-sh76-s1",
+    ]
+    assert [(j.shape, j.n_joints, j.shape_key) for j in jobs] == [
+        (2, 6, "aaaaaaaaaaaa"),
+        (76, 7, "bbbbbbbbbbbb"),
+    ] * 2
+    # Each job is saved as jobs/<job id>.npy, so an id shared with a ga job would make
+    # the two kinds overwrite each other's designs and confuse --resume.
+    assert not {j.job_id for j in jobs} & {j.job_id for j in make_jobs(cfg)}
+    # refine-best jobs still stack on top (order within a run doesn't matter).
+    both = make_jobs(cfg, position_shapes=shapes, refine_best=True)
+    assert sorted(j.kind for j in both) == ["position_ga"] * 4 + ["refine_best"]
+
+
+def test_a_position_job_logs_the_settings_it_actually_ran_with():
+    """refine_best blanks the GA columns because it runs no GA; position_ga does run
+    one, so its size, seed, population and generations are real."""
+    cfg = preset("quick")
+    row = pipeline.job_row(
+        pipeline.JobResult(job=Job("position_ga", 1, 6, 2, (), shape=3)), cfg
+    )
+    assert (row["n_joints"], row["seed"]) == (6, 2)
+    assert row["pop_size"] == str(cfg.pop_size)
+    assert row["n_gen"] == str(cfg.n_gen)
+    assert row["kind"] == "position_ga"
+    # No new column: experiments.check() requires the committed log's header to match.
+    assert set(row) <= set(pipeline.JOB_COLUMNS)
+
+
+def test_the_time_estimate_knows_a_position_job_is_cheaper_per_design():
+    """A position GA's mechanisms are small and its batch is one chunk, so the mixed
+    GA's per-design cost would overstate it; its front is bigger, so refinement costs
+    more. The estimate is what the user is shown before a long run."""
+    cfg = preset("quick", targets=(1,), seeds=(0,), pop_size=100, n_gen=200)
+    ga_only = pipeline.estimate_seconds([Job("ga", 1, 7, 0)], cfg, 1)
+    position = pipeline.estimate_seconds(
+        [Job("position_ga", 1, 6, 0, (), shape=2)], cfg, 1
+    )
+    assert position > 0 and ga_only > 0
+    assert position != ga_only
+    # More generations costs more, for this kind too.
+    more = pipeline.estimate_seconds(
+        [Job("position_ga", 1, 6, 0, (), shape=2)],
+        preset("quick", pop_size=100, n_gen=400),
+        1,
+    )
+    assert more > position
+
+
 def test_dry_run_runs_and_writes_nothing(sandbox, capsys):
     assert (
         run.main(args_for(sandbox, "--preset", "quick", "--seeds", "0-2", "--dry-run"))
