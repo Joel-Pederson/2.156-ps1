@@ -41,6 +41,19 @@ from linkopt.problem import LIMIT_MARGIN, batch_size_for, evaluate, safe_limits
 from LINKS.CP import REFERENCE_POINTS
 from LINKS.Optimization import DifferentiableTools  # the course's gradient scorer
 
+# --- "Smarter" descent rules (cfg.refine_method) ---------------------------------
+# Adam: the usual defaults. beta1 averages the gradient (momentum), beta2 averages its
+# square, so each coordinate ends up with its own step size.
+ADAM_BETAS = (0.9, 0.999)
+ADAM_EPS = 1e-8
+# Longest gradient a step is allowed to use, per design (L2 over all its joints).
+# DifferentiableTools can return a very large gradient near a jamming configuration;
+# unclipped, one such step throws the design far outside the limits and retires it.
+GRAD_CLIP = 1.0
+# Basin hopping: how many noisy restarts per step size, and how far each jumps.
+BASIN_RESTARTS = 5
+BASIN_SIGMA = 0.01
+
 _GRADIENT_TOOLS = None
 
 
@@ -92,6 +105,12 @@ def refine(designs, target, cfg: Config, margin=LIMIT_MARGIN) -> RefineResult:
     and returns each design at the best position any of them reached: never a higher
     distance than it started with, and always inside the kangaroo's limits by
     `margin`.
+
+    cfg.refine_method chooses how each step is taken: "plain" (the notebook's fixed
+    step), "adam" (per-joint step sizes from the gradient's history; step_sizes are
+    learning rates) or "basin" (plain descent restarted from nearby random positions).
+    The guarantees above hold for all three -- they only change how the walk moves, and
+    the re-score below reverts anything that didn't actually improve.
     """
     start_time = time.perf_counter()
     curve = target_curve(target)
@@ -120,8 +139,21 @@ def refine(designs, target, cfg: Config, margin=LIMIT_MARGIN) -> RefineResult:
     best_distance = np.full(n, np.inf)
     steps = np.zeros(n, dtype=int)
     step_size = np.zeros(n)
+    # One fixed RNG for the whole refinement, so "basin" is reproducible.
+    rng = np.random.default_rng(0)
     for size in cfg.step_sizes:
-        _, x, at_step, distance = _descend(batch, curve, limits, cfg.grad_steps, size)
+        if cfg.refine_method == "adam":  # step_sizes are learning rates here
+            _, x, at_step, distance = _descend_adam(
+                batch, curve, limits, cfg.grad_steps, size
+            )
+        elif cfg.refine_method == "basin":
+            _, x, at_step, distance = _descend_basin(
+                batch, curve, limits, cfg.grad_steps, size, rng
+            )
+        else:
+            _, x, at_step, distance = _descend(
+                batch, curve, limits, cfg.grad_steps, size
+            )
         for i in np.where((distance[:n] < best_distance) & (at_step[:n] > 0))[0]:
             best_x[i], best_distance[i] = x[i], distance[i]
             steps[i], step_size[i] = at_step[i], size
@@ -204,6 +236,113 @@ def _descend(mechs, curve, limits, n_steps, step_size):
             x[i] = x[i] - step_size * distance_grad[i]
 
     return x, best_x, best_step, best_distance
+
+
+def _clipped(grad, limit=GRAD_CLIP):
+    """`grad` scaled down if it is longer than `limit` (its direction is kept)."""
+    norm = float(np.sqrt(np.sum(np.asarray(grad, dtype=float) ** 2)))
+    return grad if norm <= limit or norm == 0 else np.asarray(grad) * (limit / norm)
+
+
+def _descend_adam(mechs, curve, limits, n_steps, lr):
+    """_descend's loop with the Adam update instead of a fixed step.
+
+    Plain descent moves every joint the same multiple of its gradient, so one step size
+    has to suit a joint whose gradient is tiny and one whose gradient is huge. Adam
+    keeps, per coordinate, a running mean of the gradient (`m`, momentum) and of its
+    square (`v`), and steps `lr * m / sqrt(v)`: a coordinate with a small but consistent
+    gradient still moves about `lr`, and a coordinate with a huge gradient doesn't
+    overshoot. Early steps are bias-corrected, because `m` and `v` start at zero.
+
+    Everything else matches _descend exactly: one batched gradient call per step, the
+    same inside-the-limits test, the same "remember each design's best position while
+    inside" rule, and the same permanent retirement of a design that steps outside.
+
+    Returns (x, best_x, best_step, best_distance), like _descend.
+    """
+    edges = [m["edges"] for m in mechs]
+    fixed = [m["fixed_joints"] for m in mechs]
+    motors = [m["motor"] for m in mechs]
+    targets = [m.get("target_joint") for m in mechs]
+    beta1, beta2 = ADAM_BETAS
+
+    x = [np.array(m["x0"], dtype=float) for m in mechs]
+    x_last = list(x)
+    done = np.zeros(len(x), dtype=bool)
+    best_x = list(x)
+    best_distance = np.full(len(x), np.inf)
+    best_step = np.zeros(len(x), dtype=int)
+    moment = [np.zeros_like(xi) for xi in x]  # m: the averaged gradient
+    velocity = [np.zeros_like(xi) for xi in x]  # v: the averaged squared gradient
+    taken = np.zeros(len(x), dtype=int)  # Adam steps each design has taken, for the bias
+
+    for step in range(n_steps + 1):
+        distance, material, distance_grad, _ = gradient_tools()(
+            x, edges, fixed, motors, curve, list(targets)
+        )
+        inside = (distance <= limits[0]) & (material <= limits[1])
+
+        for i in np.where(inside & (distance < best_distance))[0]:
+            best_x[i], best_distance[i], best_step[i] = x[i], distance[i], step
+
+        for i in np.where(~inside)[0]:
+            done[i] = True
+            x[i] = x_last[i]
+
+        if step == n_steps or done.all():
+            break
+
+        x_last = list(x)
+        for i in np.where(~done)[0]:
+            grad = _clipped(distance_grad[i])
+            moment[i] = beta1 * moment[i] + (1 - beta1) * grad
+            velocity[i] = beta2 * velocity[i] + (1 - beta2) * grad**2
+            taken[i] += 1
+            m_hat = moment[i] / (1 - beta1 ** taken[i])
+            v_hat = velocity[i] / (1 - beta2 ** taken[i])
+            x[i] = x[i] - lr * m_hat / (np.sqrt(v_hat) + ADAM_EPS)
+
+    return x, best_x, best_step, best_distance
+
+
+def _descend_basin(mechs, curve, limits, n_steps, step_size, rng):
+    """Basin hopping: the plain descent, restarted from nearby random positions.
+
+    One downhill walk only reaches the bottom of the valley it starts in. Basin hopping
+    jumps to a nearby random point (every joint nudged by BASIN_SIGMA), walks downhill
+    from there with the unchanged _descend, and keeps the new result for a design only
+    if it beat that design's best so far. BASIN_RESTARTS jumps per step size.
+
+    Positions are clipped to [0, 1] after each jump: that is the box the GA's position
+    variables live in, so a design outside it isn't one the GA could have produced.
+
+    Returns (x, best_x, best_step, best_distance), like _descend. `best_step` is the
+    step within the winning restart, so 0 means no restart improved the design.
+    """
+    best_x = [np.array(m["x0"], dtype=float) for m in mechs]
+    best_distance = np.full(len(mechs), np.inf)
+    best_step = np.zeros(len(mechs), dtype=int)
+
+    for _ in range(BASIN_RESTARTS):
+        jumped = [
+            dict(
+                m,
+                x0=np.clip(
+                    np.asarray(m["x0"], dtype=float)
+                    + rng.normal(0.0, BASIN_SIGMA, size=np.shape(m["x0"])),
+                    0.0,
+                    1.0,
+                ),
+            )
+            for m in mechs
+        ]
+        _, x, at_step, distance = _descend(jumped, curve, limits, n_steps, step_size)
+        # Keep a restart only where it improved on every restart so far.
+        better = (distance < best_distance) & (at_step > 0)
+        for i in np.where(better)[0]:
+            best_x[i], best_distance[i], best_step[i] = x[i], distance[i], at_step[i]
+
+    return best_x, best_x, best_step, best_distance
 
 
 def _scores(mechs, curve) -> np.ndarray:

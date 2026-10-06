@@ -38,7 +38,7 @@ from tqdm.auto import tqdm
 import linkopt  # noqa: F401  (pins JAX to the CPU before LINKS imports it)
 from linkopt import experiments, pipeline
 from linkopt.archive import BEST_PATH, ROOT, RUNS_DIR
-from linkopt.config import Config, preset
+from linkopt.config import REFINE_METHODS, Config, preset
 
 SETTING_FLAGS = {  # command-line flag -> Config field, for the simple settings
     "n_start": int,
@@ -72,6 +72,7 @@ RESUME_KEEPS = [
     *SETTING_FLAGS,
     "mutation_prob",
     "step_sizes",
+    "refine_method",
     "sweep",
     "refine_best",
     "no_update_best",
@@ -142,6 +143,10 @@ def parse_args(argv):
         parser.add_argument("--" + name.replace("_", "-"), type=kind)
     parser.add_argument("--mutation-prob", help="a number in [0, 1], or none")
     parser.add_argument("--step-sizes", type=float, nargs="+")
+    # Not in SETTING_FLAGS on purpose: that would make it sweepable, and every swept
+    # setting has to be a column in the committed experiments_jobs.csv, which
+    # experiments.check() requires to match exactly (run one method per invocation).
+    parser.add_argument("--refine-method", choices=list(REFINE_METHODS))
     parser.add_argument(
         "--sweep",
         action="append",
@@ -186,6 +191,8 @@ def config_from_args(args) -> Config:
         overrides["mutation_prob"] = parse_mutation_prob(args.mutation_prob)
     if args.step_sizes is not None:
         overrides["step_sizes"] = tuple(args.step_sizes)
+    if args.refine_method is not None:
+        overrides["refine_method"] = args.refine_method
     if args.workers is not None:
         overrides["n_workers"] = args.workers
     return preset(args.preset or "quick", **overrides)

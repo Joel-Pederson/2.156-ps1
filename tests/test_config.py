@@ -28,6 +28,8 @@ def test_preset_overrides():
         {"n_joints": (7, 7)},
         {"pop_size": 0},
         {"mutation_prob": 1.5},
+        {"refine_method": "newton"},  # only plain / adam / basin
+        {"refine_method": ""},
         {"step_sizes": ()},
         {"step_sizes": (4e-4, 0)},
     ],
@@ -35,6 +37,14 @@ def test_preset_overrides():
 def test_invalid_settings_are_rejected(bad):
     with pytest.raises(ValueError):
         Config(**bad)
+
+
+def test_refine_method_defaults_to_todays_behavior():
+    """New descent rules must be opt-in so existing scores are reproducible."""
+    assert Config().refine_method == "plain"
+    for cfg in PRESETS.values():
+        assert cfg.refine_method == "plain"
+    assert preset("quick", refine_method="adam").refine_method == "adam"
 
 
 def test_unknown_preset_or_setting_is_rejected():

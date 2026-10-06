@@ -145,3 +145,82 @@ def test_never_worse_even_when_the_step_overshoots(designs):
     Each design must still come back at its best position, never worse."""
     r = refine(designs, TARGET, preset("quick", grad_steps=STEPS, step_sizes=(4e-4,)))
     assert (r.F_after[:, 0] <= r.F_before[:, 0] * (1 + 1e-5)).all()
+
+
+# --- Smarter descent rules (cfg.refine_method) -----------------------------------
+
+
+@pytest.fixture(scope="session")
+def k2_designs(_best_submission):
+    """A few Kangaroo 2 designs with material above 2.4 (the accurate, heavy ones)."""
+    mechs = list(_best_submission["Problem 2"])
+    _, material = evaluate(mechs, target_curve(1))
+    heavy = [m for m, mat in zip(mechs, material) if mat > 2.4]
+    return heavy[:8]
+
+
+def _refined(designs, target, method, steps):
+    return refine(
+        designs, target, preset("quick", refine_method=method, grad_steps=steps)
+    )
+
+
+def test_plain_is_still_the_default_and_unchanged(designs):
+    """rule: new behavior is opt-in. Asking for "plain" must be bit-identical to the
+    default, which is the behavior every earlier run had."""
+    assert preset("quick").refine_method == "plain"
+    default = refine(designs[:6], TARGET, preset("quick", grad_steps=STEPS))
+    explicit = _refined(designs[:6], TARGET, "plain", STEPS)
+    np.testing.assert_array_equal(default.F_after, explicit.F_after)
+    np.testing.assert_array_equal(default.steps, explicit.steps)
+    for a, b in zip(default.designs, explicit.designs):
+        np.testing.assert_array_equal(a["x0"], b["x0"])
+
+
+@pytest.mark.parametrize("method", ["adam", "basin"])
+def test_every_method_keeps_refines_inside_the_limits_and_never_worse(
+    k2_designs, method
+):
+    """The promise refine() makes, for the new methods too: each design comes back
+    inside the limits and never with a higher distance than it went in with."""
+    result = _refined(k2_designs, 1, method, 10)
+    limits = safe_limits(REFERENCE_POINTS[1], LIMIT_MARGIN)
+    assert (result.F_after <= limits).all()
+    assert (result.F_after[:, 0] <= result.F_before[:, 0]).all()
+    # Material is never optimized, only distance, so it may drift either way but the
+    # design must stay legal; and a design that didn't move is reported as unmoved.
+    for i, moved in enumerate(result.steps > 0):
+        same = np.array_equal(
+            np.asarray(result.designs[i]["x0"]), np.asarray(k2_designs[i]["x0"])
+        )
+        assert moved != same, f"design {i}: steps and positions disagree"
+    assert len(result.moved()) == int((result.steps > 0).sum())
+
+
+def test_basin_is_reproducible(k2_designs):
+    """Fixed RNG seed: same designs in, same positions out."""
+    a = _refined(k2_designs, 1, "basin", 6)
+    b = _refined(k2_designs, 1, "basin", 6)
+    np.testing.assert_array_equal(a.F_after, b.F_after)
+    for m, m2 in zip(a.designs, b.designs):
+        np.testing.assert_array_equal(m["x0"], m2["x0"])
+
+
+def test_adam_moves_differently_from_plain(k2_designs):
+    """Sanity check that the Adam branch is actually a different walk (otherwise the
+    experiment would be comparing a method against itself)."""
+    plain = _refined(k2_designs, 1, "plain", 10)
+    adam = _refined(k2_designs, 1, "adam", 10)
+    assert not np.array_equal(plain.F_after, adam.F_after)
+
+
+def test_gradient_clipping_keeps_direction_and_caps_length():
+    from linkopt.refine import GRAD_CLIP, _clipped
+
+    small = np.array([[0.1, 0.0], [0.0, 0.2]])
+    np.testing.assert_array_equal(_clipped(small), small)  # untouched
+
+    big = np.array([[30.0, 40.0]])  # length 50
+    out = _clipped(big)
+    assert np.isclose(np.sqrt((out**2).sum()), GRAD_CLIP)
+    assert np.allclose(out / np.linalg.norm(out), big / np.linalg.norm(big))

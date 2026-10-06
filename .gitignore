@@ -31,7 +31,6 @@ wandb/
 *.npz
 my_full_submission.npy
 my_submission.npy
-*.md
 *.pages
 *.pdf
 *.png
