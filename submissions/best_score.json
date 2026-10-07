@@ -1,17 +1,17 @@
 {
-  "overall_score": 2.8224436882905493,
+  "overall_score": 2.8981512254712385,
   "score_breakdown": {
-    "Problem 1": 4.4032020604412985,
-    "Problem 2": 6.422309779165385,
-    "Problem 3": 19.84190181874075
+    "Problem 1": 4.498771395939876,
+    "Problem 2": 6.520969440592717,
+    "Problem 3": 20.977550180486325
   },
   "normalized_score_breakdown": {
-    "Problem 1": 2.2016010302206492,
-    "Problem 2": 4.281539852776923,
-    "Problem 3": 1.9841901818740753
+    "Problem 1": 2.249385697969938,
+    "Problem 2": 4.347312960395144,
+    "Problem 3": 2.0977550180486326
   },
-  "source": "merge.py --recheck",
-  "date": "2026-10-05 18:41",
+  "source": "merge.py /private/tmp/claude-501/-Users-joelpederson-Documents-School-Cambridge-Fall-2026-2-156-AIML-for-Engineering-Design-ps1/fb4be588-1832-4783-b175-3498cff4ded0/scratchpad/team/leif_best.npy",
+  "date": "2026-10-07 07:10",
   "history": [
     {
       "date": "2026-09-26",
@@ -72,6 +72,21 @@
       "date": "2026-10-05 18:41",
       "source": "merge.py --recheck",
       "overall_score": 2.8224436882905493
+    },
+    {
+      "date": "2026-10-07 06:08",
+      "source": "run.py 20261005-180048",
+      "overall_score": 2.8598613664163324
+    },
+    {
+      "date": "2026-10-07 06:08",
+      "source": "merge.py --recheck",
+      "overall_score": 2.859766381306985
+    },
+    {
+      "date": "2026-10-07 07:10",
+      "source": "merge.py /private/tmp/claude-501/-Users-joelpederson-Documents-School-Cambridge-Fall-2026-2-156-AIML-for-Engineering-Design-ps1/fb4be588-1832-4783-b175-3498cff4ded0/scratchpad/team/leif_best.npy",
+      "overall_score": 2.8981512254712385
     }
   ]
 }
